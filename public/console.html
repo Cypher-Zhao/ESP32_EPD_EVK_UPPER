@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>控制台 - ESP32 EPD EVK</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    :root {
+      --primary: #0078d4; --primary-hover: #106ebe;
+      --success: #107c10; --danger: #d13438; --warning: #ff8c00;
+      --bg: #1e1e1e; --card-bg: #252526; --text: #cccccc;
+      --text-sec: #858585; --border: #3e3e3e;
+      --shadow: 0 2px 8px rgba(0,0,0,.3); --radius: 8px;
+    }
+    html, body { height: 100%; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+      background: var(--bg); color: var(--text);
+      display: flex; flex-direction: column;
+    }
+
+    /* 顶部导航 */
+    .header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 12px 20px; background: #1a1a2e; border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    .header h1 { font-size: 16px; font-weight: 600; color: #e0e0e0; }
+    .header .nav-links { display: flex; gap: 8px; align-items: center; }
+    .header .nav-links a {
+      color: #aaa; text-decoration: none; padding: 5px 12px;
+      border-radius: 6px; font-size: 13px; transition: all .2s;
+    }
+    .header .nav-links a:hover, .header .nav-links a.active {
+      color: #fff; background: rgba(255,255,255,.1);
+    }
+    .mode-badge {
+      font-size: 12px; padding: 3px 10px; border-radius: 10px;
+      background: rgba(209,52,56,.2); color: var(--danger); font-weight: 500;
+    }
+    .mode-badge.connected { background: rgba(16,124,16,.2); color: var(--success); }
+
+    /* 主体 */
+    .main {
+      flex: 1; display: flex; flex-direction: column;
+      max-width: 1000px; width: 100%; margin: 0 auto;
+      padding: 12px; overflow: hidden;
+    }
+
+    /* 消息区域 */
+    .messages-wrap {
+      flex: 1; overflow: hidden; display: flex; flex-direction: column;
+      background: #1e1e1e; border-radius: var(--radius);
+      border: 1px solid var(--border); margin-bottom: 12px;
+    }
+    .messages-toolbar {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 8px 14px; border-bottom: 1px solid var(--border);
+      background: #252526; border-radius: var(--radius) var(--radius) 0 0;
+      flex-shrink: 0;
+    }
+    .messages-toolbar .info { font-size: 12px; color: var(--text-sec); }
+    .messages-toolbar button {
+      font-size: 12px; padding: 3px 10px; background: transparent;
+      color: var(--text-sec); border: 1px solid var(--border); border-radius: 4px;
+      cursor: pointer; transition: all .2s;
+    }
+    .messages-toolbar button:hover { background: #3e3e3e; color: var(--text); }
+    .messages {
+      flex: 1; overflow-y: auto; padding: 14px;
+      font-family: 'Cascadia Code', 'Fira Code', Consolas, monospace;
+      font-size: 13px; line-height: 1.7;
+    }
+    .messages::-webkit-scrollbar { width: 6px; }
+    .messages::-webkit-scrollbar-track { background: transparent; }
+    .messages::-webkit-scrollbar-thumb { background: #555; border-radius: 3px; }
+
+    .msg-line { margin-bottom: 2px; word-break: break-all; }
+    .msg-time { color: #6a9955; }
+    .msg-sent { color: #569cd6; }
+    .msg-received { color: #ce9178; }
+    .msg-system { color: #dcdcaa; }
+    .msg-error { color: #f44747; }
+
+    .empty-hint {
+      color: #555; text-align: center; padding: 60px 20px;
+      font-size: 14px; line-height: 2;
+    }
+    .empty-hint .icon { font-size: 36px; display: block; margin-bottom: 8px; }
+
+    /* 输入区域 */
+    .input-bar {
+      display: flex; gap: 10px; flex-shrink: 0;
+    }
+    .input-bar input {
+      flex: 1; padding: 12px 16px; background: #2d2d2d;
+      border: 1px solid var(--border); border-radius: 6px;
+      color: var(--text); font-size: 14px; outline: none;
+      transition: border-color .2s;
+    }
+    .input-bar input:focus { border-color: var(--primary); }
+    .input-bar input:disabled { opacity: .4; }
+    .input-bar .btn-send {
+      padding: 12px 28px; background: var(--primary); color: #fff;
+      border: none; border-radius: 6px; font-size: 14px; font-weight: 500;
+      cursor: pointer; transition: background .2s;
+    }
+    .input-bar .btn-send:hover:not(:disabled) { background: var(--primary-hover); }
+    .input-bar .btn-send:disabled { opacity: .4; cursor: not-allowed; }
+
+    @media (max-width: 600px) {
+      .header { padding: 10px 14px; }
+      .header h1 { font-size: 14px; }
+      .main { padding: 8px; }
+      .input-bar input { padding: 10px 12px; font-size: 16px; }
+      .input-bar .btn-send { padding: 10px 18px; }
+    }
+  </style>
+</head>
+<body>
+  <!-- 顶部 -->
+  <div class="header">
+    <h1>📡 ESP32 EPD EVK 上位机</h1>
+    <div class="nav-links">
+      <a href="/">主页</a>
+      <a href="/console.html" class="active">控制台</a>
+      <span class="mode-badge" id="modeBadge">未连接</span>
+    </div>
+  </div>
+
+  <!-- 主体 -->
+  <div class="main">
+    <!-- 消息区 -->
+    <div class="messages-wrap">
+      <div class="messages-toolbar">
+        <span class="info" id="msgCount">0 条消息</span>
+        <button onclick="clearMessages()">清空日志</button>
+      </div>
+      <div class="messages" id="messageArea">
+        <div class="empty-hint">
+          <span class="icon">📡</span>
+          暂无消息<br>
+          请先在<a href="/" style="color:var(--primary);text-decoration:underline">主页</a>连接设备
+        </div>
+      </div>
+    </div>
+
+    <!-- 输入区 -->
+    <div class="input-bar">
+      <input type="text" id="sendInput" placeholder="输入要发送的消息..." disabled>
+      <button class="btn-send" id="sendBtn" disabled>发送</button>
+    </div>
+  </div>
+
+  <script>
+    let ws = null;
+    let messageCount = 0;
+    let connected = false;
+
+    const messageArea = document.getElementById('messageArea');
+    const msgCountEl = document.getElementById('msgCount');
+    const sendInput = document.getElementById('sendInput');
+    const sendBtn = document.getElementById('sendBtn');
+    const modeBadge = document.getElementById('modeBadge');
+
+    // 读取主页保存的连接状态
+    function getConnectionState() {
+      try { return JSON.parse(localStorage.getItem('esp32-conn')) || {}; } catch { return {}; }
+    }
+
+    // ========== WebSocket ==========
+    function connectWS() {
+      const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      ws = new WebSocket(`${proto}//${location.host}`);
+      ws.onopen = () => {
+        console.log('WS connected');
+        // 同步状态
+        const st = getConnectionState();
+        if (st.mode) updateModeBadge(st.mode, st.label);
+      };
+      ws.onmessage = (e) => handleMsg(JSON.parse(e.data));
+      ws.onclose = () => setTimeout(connectWS, 3000);
+    }
+
+    function handleMsg(msg) {
+      switch (msg.type) {
+        case 'tcp-connected':
+          setConnected('tcp', `已连接到 ${msg.host}:${msg.port}`);
+          break;
+        case 'tcp-disconnected':
+          setDisconnected(msg.message);
+          break;
+        case 'serial-connected':
+          setConnected('serial', `已连接串口 ${msg.path}`);
+          break;
+        case 'serial-disconnected':
+          setDisconnected(msg.message);
+          break;
+        case 'sent':
+          addMessage('sent', msg.data);
+          break;
+        case 'received':
+          addMessage('received', msg.data);
+          break;
+        case 'error':
+          addMessage('error', msg.message);
+          if (msg.message.includes('连接') || msg.message.includes('超时') || msg.message.includes('拒绝') || msg.message.includes('串口') || msg.message.includes('未连接')) {
+            // 不自动断开UI，因为可能只是发送失败
+          }
+          break;
+      }
+    }
+
+    function setConnected(mode, text) {
+      connected = true;
+      sendInput.disabled = false;
+      sendBtn.disabled = false;
+      sendInput.focus();
+      updateModeBadge(mode, text);
+      addMessage('system', text);
+      localStorage.setItem('esp32-conn', JSON.stringify({ mode, label: text }));
+    }
+
+    function setDisconnected(reason) {
+      connected = false;
+      sendInput.disabled = true;
+      sendBtn.disabled = true;
+      modeBadge.textContent = '未连接';
+      modeBadge.classList.remove('connected');
+      addMessage('system', reason || '已断开');
+      localStorage.setItem('esp32-conn', JSON.stringify({}));
+    }
+
+    function updateModeBadge(mode, label) {
+      modeBadge.textContent = label || (mode === 'tcp' ? 'TCP' : '串口');
+      modeBadge.classList.add('connected');
+    }
+
+    // ========== 发送 ==========
+    function handleSend() {
+      const data = sendInput.value;
+      if (!data) return;
+      if (!connected) { addMessage('error', '请先连接设备'); return; }
+      if (ws && ws.readyState === 1) {
+        ws.send(JSON.stringify({ type: 'send', data }));
+        sendInput.value = '';
+        sendInput.focus();
+      }
+    }
+
+    sendBtn.onclick = handleSend;
+    sendInput.addEventListener('keydown', e => { if (e.key === 'Enter') handleSend(); });
+
+    // ========== 消息 ==========
+    function addMessage(type, text) {
+      const emptyHint = messageArea.querySelector('.empty-hint');
+      if (emptyHint) emptyHint.remove();
+
+      messageCount++;
+      msgCountEl.textContent = `${messageCount} 条消息`;
+
+      const time = new Date().toLocaleTimeString('zh-CN', { hour12: false });
+      const div = document.createElement('div');
+      div.className = 'msg-line';
+
+      let prefix = '';
+      switch (type) {
+        case 'sent':     prefix = '⬆ 发送'; break;
+        case 'received': prefix = '⬇ 接收'; break;
+        case 'system':   prefix = 'ℹ 系统'; break;
+        case 'error':    prefix = '✖ 错误'; break;
+      }
+
+      div.innerHTML = `<span class="msg-time">[${time}]</span> <span class="msg-${type}">${prefix}: ${esc(text)}</span>`;
+      messageArea.appendChild(div);
+      messageArea.scrollTop = messageArea.scrollHeight;
+    }
+
+    function clearMessages() {
+      messageCount = 0;
+      msgCountEl.textContent = '0 条消息';
+      messageArea.innerHTML = `<div class="empty-hint"><span class="icon">📡</span>暂无消息<br>请先在<a href="/" style="color:var(--primary);text-decoration:underline">主页</a>连接设备</div>`;
+    }
+
+    function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+    // ========== 初始化 ==========
+    connectWS();
+    // 恢复状态
+    const saved = getConnectionState();
+    if (saved.mode) {
+      updateModeBadge(saved.mode, saved.label);
+    }
+  </script>
+</body>
+</html>

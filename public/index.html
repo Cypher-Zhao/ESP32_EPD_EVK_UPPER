@@ -227,6 +227,64 @@
         </div>
       </div>
     </div>
+
+    <!-- 图片抖动与取模 -->
+    <div class="card">
+      <div class="card-header"><span>🖼️</span> 图片抖动与取模</div>
+      <div class="card-body">
+        <!-- 选择图片 -->
+        <div class="form-row" style="margin-bottom:12px">
+          <div class="form-group" style="flex:1">
+            <label>选择图片</label>
+            <input type="file" id="imageInput" accept="image/*" style="padding:8px 0">
+          </div>
+        </div>
+        <!-- 分辨率和色板 -->
+        <div class="form-row" style="margin-bottom:12px">
+          <div class="form-group">
+            <label>目标宽度 (px)</label>
+            <input type="number" id="targetWidth" value="296" min="1" max="2000" style="width:100px">
+          </div>
+          <div class="form-group">
+            <label>目标高度 (px)</label>
+            <input type="number" id="targetHeight" value="128" min="1" max="2000" style="width:100px">
+          </div>
+          <div class="form-group">
+            <label>抖动色板</label>
+            <select id="paletteSelect">
+              <option value="bw1">黑白 1bit</option>
+              <option value="bwr1">黑白红 1bit</option>
+              <option value="bwyr2">黑白黄红 2bit</option>
+            </select>
+          </div>
+          <div style="padding-bottom:0">
+            <button class="btn btn-primary" id="convertBtn" disabled>转换</button>
+          </div>
+        </div>
+        <!-- 图片预览对比 -->
+        <div id="imagePreview" style="display:none;margin-top:16px">
+          <div style="display:flex;gap:16px;flex-wrap:wrap">
+            <div style="flex:1;min-width:200px">
+              <div style="font-size:13px;font-weight:500;color:var(--text-sec);margin-bottom:8px">原图</div>
+              <canvas id="canvasOriginal" style="width:100%;border:1px solid var(--border);border-radius:6px;background:#fff"></canvas>
+            </div>
+            <div style="flex:1;min-width:200px">
+              <div style="font-size:13px;font-weight:500;color:var(--text-sec);margin-bottom:8px">抖动后</div>
+              <canvas id="canvasDithered" style="width:100%;border:1px solid var(--border);border-radius:6px;background:#fff"></canvas>
+            </div>
+          </div>
+          <!-- 取模数据预览 -->
+          <div style="margin-top:16px">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+              <span style="font-size:13px;font-weight:500;color:var(--text-sec)">取模数据预览</span>
+              <button class="btn btn-outline btn-sm" id="copyDataBtn">复制数据</button>
+            </div>
+            <div id="modDataPreview" style="background:#1e1e1e;color:#ce9178;font-family:monospace;font-size:12px;padding:12px;border-radius:6px;max-height:200px;overflow-y:auto;white-space:pre-wrap;word-break:break-all;line-height:1.6"></div>
+            <div id="modDataInfo" style="font-size:12px;color:var(--text-sec);margin-top:6px"></div>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 
   <!-- 底部控制台入口 -->
@@ -423,6 +481,241 @@
     const saved = getConnectionState();
     if (saved.mode) {
       modeTag.innerHTML = `当前模式: <strong>${saved.mode === 'tcp' ? 'TCP' : '串口'}</strong> (${saved.label})`;
+    }
+
+    // ========== 图片抖动与取模 ==========
+    const imageInput = document.getElementById('imageInput');
+    const convertBtn = document.getElementById('convertBtn');
+    const canvasOrig = document.getElementById('canvasOriginal');
+    const canvasDith = document.getElementById('canvasDithered');
+    const imagePreview = document.getElementById('imagePreview');
+    const modDataPreview = document.getElementById('modDataPreview');
+    const modDataInfo = document.getElementById('modDataInfo');
+    const copyDataBtn = document.getElementById('copyDataBtn');
+
+    let loadedImage = null;
+
+    imageInput.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const img = new Image();
+      img.onload = () => {
+        loadedImage = img;
+        convertBtn.disabled = false;
+        // 显示原图
+        const ctx = canvasOrig.getContext('2d');
+        canvasOrig.width = img.width;
+        canvasOrig.height = img.height;
+        ctx.drawImage(img, 0, 0);
+        imagePreview.style.display = 'block';
+        modDataPreview.textContent = '点击「转换」按钮生成取模数据';
+        modDataInfo.textContent = '';
+      };
+      img.src = URL.createObjectURL(file);
+    });
+
+    convertBtn.addEventListener('click', () => {
+      if (!loadedImage) return;
+      const w = parseInt(document.getElementById('targetWidth').value) || 296;
+      const h = parseInt(document.getElementById('targetHeight').value) || 128;
+      const palette = document.getElementById('paletteSelect').value;
+
+      // 缩放图片到目标分辨率
+      const tempCanvas = document.createElement('canvas');
+      tempCanvas.width = w;
+      tempCanvas.height = h;
+      const tempCtx = tempCanvas.getContext('2d');
+      tempCtx.drawImage(loadedImage, 0, 0, w, h);
+      const imageData = tempCtx.getImageData(0, 0, w, h);
+
+      // 执行抖动
+      const dithered = floydSteinbergDither(imageData, palette);
+
+      // 显示抖动后的图片
+      canvasDith.width = w;
+      canvasDith.height = h;
+      const dithCtx = canvasDith.getContext('2d');
+      dithCtx.putImageData(dithered, 0, 0);
+
+      // 取模
+      const modResult = generateModData(dithered, palette);
+      modDataPreview.textContent = modResult.hex;
+      modDataInfo.textContent = `分辨率: ${w}×${h} | 数据大小: ${modResult.bytes.length} 字节 | 色板: ${getPaletteName(palette)}`;
+
+      // 保存取模数据供复制
+      copyDataBtn.onclick = () => {
+        navigator.clipboard.writeText(modResult.hex).then(() => {
+          copyDataBtn.textContent = '已复制 ✓';
+          setTimeout(() => copyDataBtn.textContent = '复制数据', 1500);
+        });
+      };
+    });
+
+    function getPaletteName(p) {
+      return { bw1: '黑白 1bit', bwr1: '黑白红 1bit', bwyr2: '黑白黄红 2bit' }[p] || p;
+    }
+
+    // ========== Floyd-Steinberg 抖动算法 ==========
+    function floydSteinbergDither(imageData, palette) {
+      const w = imageData.width, h = imageData.height;
+      const data = new Float32Array(imageData.data.length);
+      for (let i = 0; i < data.length; i++) data[i] = imageData.data[i];
+
+      const paletteColors = getPaletteColors(palette);
+
+      for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+          const idx = (y * w + x) * 4;
+          const oldR = data[idx], oldG = data[idx + 1], oldB = data[idx + 2];
+
+          // 找到最近的调色板颜色
+          const nearest = findNearestColor(oldR, oldG, oldB, paletteColors);
+          data[idx] = nearest[0];
+          data[idx + 1] = nearest[1];
+          data[idx + 2] = nearest[2];
+          data[idx + 3] = 255;
+
+          // 误差扩散
+          const errR = oldR - nearest[0];
+          const errG = oldG - nearest[1];
+          const errB = oldB - nearest[2];
+
+          diffuseError(data, w, h, x + 1, y, errR, errG, errB, 7 / 16);
+          diffuseError(data, w, h, x - 1, y + 1, errR, errG, errB, 3 / 16);
+          diffuseError(data, w, h, x, y + 1, errR, errG, errB, 5 / 16);
+          diffuseError(data, w, h, x + 1, y + 1, errR, errG, errB, 1 / 16);
+        }
+      }
+
+      const result = new ImageData(w, h);
+      for (let i = 0; i < data.length; i++) result.data[i] = Math.round(data[i]);
+      return result;
+    }
+
+    function diffuseError(data, w, h, x, y, eR, eG, eB, factor) {
+      if (x < 0 || x >= w || y < 0 || y >= h) return;
+      const idx = (y * w + x) * 4;
+      data[idx]     = Math.max(0, Math.min(255, data[idx]     + eR * factor));
+      data[idx + 1] = Math.max(0, Math.min(255, data[idx + 1] + eG * factor));
+      data[idx + 2] = Math.max(0, Math.min(255, data[idx + 2] + eB * factor));
+    }
+
+    function findNearestColor(r, g, b, palette) {
+      let minDist = Infinity, nearest = palette[0];
+      for (const c of palette) {
+        const d = (r - c[0]) ** 2 + (g - c[1]) ** 2 + (b - c[2]) ** 2;
+        if (d < minDist) { minDist = d; nearest = c; }
+      }
+      return nearest;
+    }
+
+    function getPaletteColors(palette) {
+      switch (palette) {
+        case 'bw1':
+          return [[0,0,0], [255,255,255]];
+        case 'bwr1':
+          return [[0,0,0], [255,255,255], [255,0,0]];
+        case 'bwyr2':
+          return [[0,0,0], [255,255,255], [255,255,0], [255,0,0]];
+        default:
+          return [[0,0,0], [255,255,255]];
+      }
+    }
+
+    // ========== 取模数据生成 ==========
+    function generateModData(imageData, palette) {
+      const w = imageData.width, h = imageData.height;
+      const data = imageData.data;
+      const bytes = [];
+
+      switch (palette) {
+        case 'bw1': {
+          // 黑白1bit: 每像素1bit, 0=黑, 1=白, 每行按字节对齐
+          const rowBytes = Math.ceil(w / 8);
+          for (let y = 0; y < h; y++) {
+            for (let xb = 0; xb < rowBytes; xb++) {
+              let byte = 0;
+              for (let bit = 0; bit < 8; bit++) {
+                const x = xb * 8 + bit;
+                if (x < w) {
+                  const idx = (y * w + x) * 4;
+                  const lum = data[idx] * 0.299 + data[idx+1] * 0.587 + data[idx+2] * 0.114;
+                  if (lum > 128) byte |= (1 << (7 - bit)); // 白色=1
+                }
+              }
+              bytes.push(byte);
+            }
+          }
+          break;
+        }
+        case 'bwr1': {
+          // 黑白红1bit: 两层, 第一层黑白, 第二层红色
+          const rowBytes = Math.ceil(w / 8);
+          // 黑白层
+          for (let y = 0; y < h; y++) {
+            for (let xb = 0; xb < rowBytes; xb++) {
+              let byte = 0;
+              for (let bit = 0; bit < 8; bit++) {
+                const x = xb * 8 + bit;
+                if (x < w) {
+                  const idx = (y * w + x) * 4;
+                  const r = data[idx], g = data[idx+1], b = data[idx+2];
+                  const isRed = r > 200 && g < 80 && b < 80;
+                  const lum = r * 0.299 + g * 0.587 + b * 0.114;
+                  // 黑白层: 非红色且亮>128 → 白(1), 否则黑(0)
+                  if (!isRed && lum > 128) byte |= (1 << (7 - bit));
+                }
+              }
+              bytes.push(byte);
+            }
+          }
+          // 红色层
+          for (let y = 0; y < h; y++) {
+            for (let xb = 0; xb < rowBytes; xb++) {
+              let byte = 0;
+              for (let bit = 0; bit < 8; bit++) {
+                const x = xb * 8 + bit;
+                if (x < w) {
+                  const idx = (y * w + x) * 4;
+                  const r = data[idx], g = data[idx+1], b = data[idx+2];
+                  const isRed = r > 200 && g < 80 && b < 80;
+                  if (isRed) byte |= (1 << (7 - bit));
+                }
+              }
+              bytes.push(byte);
+            }
+          }
+          break;
+        }
+        case 'bwyr2': {
+          // 黑白黄红2bit: 每像素2bit
+          // 00=黑, 01=白, 10=黄, 11=红
+          const rowBytes = Math.ceil(w / 4);
+          for (let y = 0; y < h; y++) {
+            for (let xb = 0; xb < rowBytes; xb++) {
+              let byte = 0;
+              for (let px = 0; px < 4; px++) {
+                const x = xb * 4 + px;
+                if (x < w) {
+                  const idx = (y * w + x) * 4;
+                  const r = data[idx], g = data[idx+1], b = data[idx+2];
+                  let val = 0;
+                  if (r > 200 && g < 80 && b < 80) val = 3; // 红
+                  else if (r > 200 && g > 200 && b < 80) val = 2; // 黄
+                  else if (r * 0.299 + g * 0.587 + b * 0.114 > 128) val = 1; // 白
+                  byte |= (val << (6 - px * 2));
+                }
+              }
+              bytes.push(byte);
+            }
+          }
+          break;
+        }
+      }
+
+      // 生成十六进制字符串
+      const hex = bytes.map(b => '0x' + b.toString(16).padStart(2, '0').toUpperCase()).join(', ');
+      return { bytes, hex };
     }
   </script>
 </body>
