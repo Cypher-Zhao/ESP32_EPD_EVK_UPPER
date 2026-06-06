@@ -286,11 +286,11 @@
         <div class="form-row" style="margin-bottom:12px">
           <div class="form-group">
             <label>目标宽度 (px)</label>
-            <input type="number" id="targetWidth" value="296" min="1" max="2000" style="width:100px">
+            <input type="number" id="targetWidth" disabled min="1" style="width:100px">
           </div>
           <div class="form-group">
             <label>目标高度 (px)</label>
-            <input type="number" id="targetHeight" value="128" min="1" max="2000" style="width:100px">
+            <input type="number" id="targetHeight" disabled min="1" style="width:100px">
           </div>
           <div class="form-group">
             <label>抖动色板</label>
@@ -592,6 +592,11 @@
       img.onload = () => {
         loadedImage = img;
         convertBtn.disabled = false;
+        // 设置目标分辨率为原图尺寸并启用
+        document.getElementById('targetWidth').value = img.width;
+        document.getElementById('targetHeight').value = img.height;
+        document.getElementById('targetWidth').disabled = false;
+        document.getElementById('targetHeight').disabled = false;
         // 显示原始尺寸
         origSizeInfo.textContent = `原始尺寸: ${img.width} × ${img.height} px`;
         // 显示原图
@@ -608,8 +613,9 @@
 
     convertBtn.addEventListener('click', () => {
       if (!loadedImage) return;
-      const w = parseInt(document.getElementById('targetWidth').value) || 296;
-      const h = parseInt(document.getElementById('targetHeight').value) || 128;
+      const w = parseInt(document.getElementById('targetWidth').value);
+      const h = parseInt(document.getElementById('targetHeight').value);
+      if (!w || !h) return;
       const palette = document.getElementById('paletteSelect').value;
       const tempCanvas = document.createElement('canvas');
       tempCanvas.width = w; tempCanvas.height = h;
