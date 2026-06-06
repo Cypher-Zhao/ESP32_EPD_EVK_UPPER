@@ -300,8 +300,9 @@
               <option value="bwyr2">黑白黄红 2bit</option>
             </select>
           </div>
-          <div style="padding-bottom:0">
+          <div style="padding-bottom:0;display:flex;gap:8px">
             <button class="btn btn-primary" id="convertBtn" disabled>转换</button>
+            <button class="btn btn-outline" id="viewFullBtn" disabled style="display:none">查看大图</button>
           </div>
         </div>
         <div id="imagePreview" style="display:none;margin-top:16px">
@@ -574,6 +575,7 @@
     // ========== 图片抖动与取模 ==========
     const imageInput = document.getElementById('imageInput');
     const convertBtn = document.getElementById('convertBtn');
+    const viewFullBtn = document.getElementById('viewFullBtn');
     const canvasOrig = document.getElementById('canvasOriginal');
     const canvasDith = document.getElementById('canvasDithered');
     const ditheredPreview = document.getElementById('ditheredPreview');
@@ -621,6 +623,9 @@
       // 转成图片 URL 显示，浏览器默认平滑缩放
       ditheredPreview.src = canvasDith.toDataURL('image/png');
       ditheredPreview.style.display = 'block';
+      // 启用查看大图按钮
+      viewFullBtn.style.display = '';
+      viewFullBtn.disabled = false;
       const modResult = generateModData(dithered, palette);
       modDataPreview.textContent = modResult.hex;
       modDataInfo.textContent = `分辨率: ${w}×${h} | 数据大小: ${modResult.bytes.length} 字节 | 色板: ${getPaletteName(palette)}`;
@@ -630,6 +635,17 @@
           setTimeout(() => copyDataBtn.textContent = '复制数据', 1500);
         });
       };
+    });
+
+    // 查看大图：弹出新窗口显示
+    viewFullBtn.addEventListener('click', () => {
+      if (!canvasDith.width) return;
+      const dataUrl = canvasDith.toDataURL('image/png');
+      const w = canvasDith.width, h = canvasDith.height;
+      const win = window.open('', '_blank', `width=${Math.min(w + 40, screen.width)},height=${Math.min(h + 80, screen.height)}`);
+      if (!win) return;
+      win.document.write(`<!DOCTYPE html><html><head><title>抖动预览 ${w}×${h}</title><style>*{margin:0;padding:0;box-sizing:border-box}body{background:#1a1a1a;display:flex;align-items:center;justify-content:center;min-height:100vh;padding:20px;overflow:auto}img{max-width:100%}</style></head><body><img src="${dataUrl}"></body></html>`);
+      win.document.close();
     });
 
     function getPaletteName(p) { return { bw1:'黑白 1bit', bwr1:'黑白红 1bit', bwyr2:'黑白黄红 2bit' }[p] || p; }
