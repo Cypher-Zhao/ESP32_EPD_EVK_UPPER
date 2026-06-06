@@ -42,8 +42,24 @@
       padding: 14px 20px; font-size: 15px; font-weight: 600;
       border-bottom: 1px solid var(--border);
       display: flex; align-items: center; gap: 8px;
+      cursor: pointer; user-select: none;
+      transition: background .15s;
     }
-    .card-body { padding: 20px; }
+    .card-header:hover { background: rgba(0,0,0,.02); }
+    .card-header .chevron {
+      margin-left: auto; font-size: 12px; color: var(--text-sec);
+      transition: transform .25s;
+    }
+    .card.collapsed .card-header { border-bottom-color: transparent; }
+    .card.collapsed .chevron { transform: rotate(-90deg); }
+    .card-body {
+      padding: 20px;
+      transition: max-height .3s ease, padding .3s ease, opacity .2s ease;
+    }
+    .card.collapsed .card-body {
+      max-height: 0 !important; padding-top: 0; padding-bottom: 0;
+      overflow: hidden; opacity: 0;
+    }
 
     /* 标签切换 */
     .tabs { display: flex; border-bottom: 2px solid var(--border); margin-bottom: 16px; }
@@ -169,8 +185,8 @@
     </div>
 
     <!-- 连接配置 -->
-    <div class="card">
-      <div class="card-header"><span>🔌</span> 设备连接</div>
+    <div class="card" id="connCard">
+      <div class="card-header"><span>🔌</span> 设备连接 <span class="chevron">▼</span></div>
       <div class="card-body">
         <div class="tabs">
           <div class="tab active" data-tab="tcp">TCP 连接</div>
@@ -207,7 +223,7 @@
               </select>
             </div>
             <div style="display:flex;gap:8px;align-items:flex-end;padding-bottom:0">
-              <button class="btn btn-outline btn-sm" id="refreshSerialBtn">🔄 刷新</button>
+              <button class="btn btn-primary" id="refreshSerialBtn">刷新</button>
             </div>
           </div>
           <div class="form-row">
@@ -240,7 +256,7 @@
 
     <!-- 控制台 (内嵌) -->
     <div class="card" id="consoleCard">
-      <div class="card-header"><span>📟</span> 控制台</div>
+      <div class="card-header"><span>📟</span> 控制台 <span class="chevron">▼</span></div>
       <div class="card-body">
         <div class="console-toolbar">
           <span class="info" id="msgCount">0 条消息</span>
@@ -257,8 +273,8 @@
     </div>
 
     <!-- 图片抖动与取模 -->
-    <div class="card">
-      <div class="card-header"><span>🖼️</span> 图片抖动与取模</div>
+    <div class="card" id="imageCard">
+      <div class="card-header"><span>🖼️</span> 图片抖动与取模 <span class="chevron">▼</span></div>
       <div class="card-body">
         <div class="form-row" style="margin-bottom:12px">
           <div class="form-group" style="flex:1">
@@ -292,11 +308,11 @@
           <div style="display:flex;gap:16px;flex-wrap:wrap">
             <div style="flex:1;min-width:200px">
               <div style="font-size:13px;font-weight:500;color:var(--text-sec);margin-bottom:8px">原图</div>
-              <canvas id="canvasOriginal" style="width:100%;border:1px solid var(--border);border-radius:6px;background:#fff"></canvas>
+              <canvas id="canvasOriginal" style="width:100%;max-height:400px;object-fit:contain;border:1px solid var(--border);border-radius:6px;background:#fff;image-rendering:pixelated;image-rendering:crisp-edges"></canvas>
             </div>
             <div style="flex:1;min-width:200px">
               <div style="font-size:13px;font-weight:500;color:var(--text-sec);margin-bottom:8px">抖动后</div>
-              <canvas id="canvasDithered" style="width:100%;border:1px solid var(--border);border-radius:6px;background:#fff"></canvas>
+              <canvas id="canvasDithered" style="width:100%;max-height:400px;object-fit:contain;border:1px solid var(--border);border-radius:6px;background:#fff;image-rendering:pixelated;image-rendering:crisp-edges"></canvas>
             </div>
           </div>
           <div style="margin-top:16px">
@@ -689,6 +705,13 @@
     // ========== 初始化 ==========
     connectWS();
     setTimeout(() => { if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'serial-list' })); }, 1000);
+
+    // ========== 卡片折叠 ==========
+    document.querySelectorAll('.card-header').forEach(header => {
+      header.addEventListener('click', () => {
+        header.parentElement.classList.toggle('collapsed');
+      });
+    });
   </script>
 </body>
 </html>
