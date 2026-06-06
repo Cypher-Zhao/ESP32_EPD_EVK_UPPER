@@ -308,11 +308,12 @@
           <div style="display:flex;gap:16px;flex-wrap:wrap">
             <div style="flex:1;min-width:200px">
               <div style="font-size:13px;font-weight:500;color:var(--text-sec);margin-bottom:8px">原图</div>
-              <canvas id="canvasOriginal" style="width:100%;max-height:400px;object-fit:contain;border:1px solid var(--border);border-radius:6px;background:#fff;image-rendering:pixelated;image-rendering:crisp-edges"></canvas>
+              <canvas id="canvasOriginal" style="width:100%;max-height:400px;object-fit:contain;border:1px solid var(--border);border-radius:6px;background:#fff"></canvas>
             </div>
             <div style="flex:1;min-width:200px">
               <div style="font-size:13px;font-weight:500;color:var(--text-sec);margin-bottom:8px">抖动后</div>
-              <canvas id="canvasDithered" style="width:100%;max-height:400px;object-fit:contain;border:1px solid var(--border);border-radius:6px;background:#fff;image-rendering:pixelated;image-rendering:crisp-edges"></canvas>
+              <img id="ditheredPreview" style="max-width:100%;max-height:400px;border:1px solid var(--border);border-radius:6px;background:#fff;display:none">
+              <canvas id="canvasDithered" style="display:none"></canvas>
             </div>
           </div>
           <div style="margin-top:16px">
@@ -575,6 +576,7 @@
     const convertBtn = document.getElementById('convertBtn');
     const canvasOrig = document.getElementById('canvasOriginal');
     const canvasDith = document.getElementById('canvasDithered');
+    const ditheredPreview = document.getElementById('ditheredPreview');
     const imagePreview = document.getElementById('imagePreview');
     const modDataPreview = document.getElementById('modDataPreview');
     const modDataInfo = document.getElementById('modDataInfo');
@@ -613,8 +615,12 @@
       tempCtx.drawImage(loadedImage, 0, 0, w, h);
       const imageData = tempCtx.getImageData(0, 0, w, h);
       const dithered = floydSteinbergDither(imageData, palette);
+      // 画到隐藏 canvas（原始分辨率）
       canvasDith.width = w; canvasDith.height = h;
       canvasDith.getContext('2d').putImageData(dithered, 0, 0);
+      // 转成图片 URL 显示，浏览器默认平滑缩放
+      ditheredPreview.src = canvasDith.toDataURL('image/png');
+      ditheredPreview.style.display = 'block';
       const modResult = generateModData(dithered, palette);
       modDataPreview.textContent = modResult.hex;
       modDataInfo.textContent = `分辨率: ${w}×${h} | 数据大小: ${modResult.bytes.length} 字节 | 色板: ${getPaletteName(palette)}`;
