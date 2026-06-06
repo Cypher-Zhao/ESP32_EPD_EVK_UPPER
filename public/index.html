@@ -16,11 +16,11 @@
     body {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', sans-serif;
       background: var(--bg); color: var(--text);
-      min-height: 100vh; padding: 16px; padding-bottom: 80px;
+      min-height: 100vh; padding: 16px;
     }
     .container { max-width: 800px; margin: 0 auto; }
 
-    /* 顶部导航 */
+    /* 顶部 */
     .header {
       display: flex; align-items: center; justify-content: space-between;
       padding: 16px 20px; margin-bottom: 16px;
@@ -28,14 +28,9 @@
       border-radius: var(--radius); color: #fff; box-shadow: var(--shadow);
     }
     .header h1 { font-size: 20px; font-weight: 600; }
-    .header .nav-links { display: flex; gap: 8px; }
-    .header .nav-links a {
-      color: #fff; text-decoration: none; padding: 6px 14px;
-      border-radius: 6px; font-size: 13px; font-weight: 500;
-      background: rgba(255,255,255,.15); transition: background .2s;
-    }
-    .header .nav-links a:hover, .header .nav-links a.active {
-      background: rgba(255,255,255,.3);
+    .header .mode-badge {
+      font-size: 12px; padding: 4px 12px; border-radius: 12px;
+      background: rgba(255,255,255,.2); font-weight: 500;
     }
 
     /* 卡片 */
@@ -51,9 +46,7 @@
     .card-body { padding: 20px; }
 
     /* 标签切换 */
-    .tabs {
-      display: flex; border-bottom: 2px solid var(--border); margin-bottom: 16px;
-    }
+    .tabs { display: flex; border-bottom: 2px solid var(--border); margin-bottom: 16px; }
     .tab {
       padding: 10px 24px; cursor: pointer; font-size: 14px; font-weight: 500;
       color: var(--text-sec); border-bottom: 2px solid transparent;
@@ -61,6 +54,7 @@
     }
     .tab:hover { color: var(--text); }
     .tab.active { color: var(--primary); border-bottom-color: var(--primary); }
+    .tab.disabled { opacity: .4; cursor: not-allowed; pointer-events: none; }
     .tab-content { display: none; }
     .tab-content.active { display: block; }
 
@@ -71,7 +65,7 @@
     .form-group input, .form-group select {
       padding: 10px 12px; border: 1px solid var(--border); border-radius: 6px;
       font-size: 14px; outline: none; transition: border-color .2s, box-shadow .2s;
-      background: #fff; min-height: 40px;
+      background: #fff; min-height: 40px; width: 100%;
     }
     .form-group input:focus, .form-group select:focus {
       border-color: var(--primary); box-shadow: 0 0 0 2px rgba(0,120,212,.15);
@@ -93,12 +87,11 @@
     .btn-primary:hover:not(:disabled) { background: var(--primary-hover); }
     .btn-danger { background: var(--danger); color: #fff; }
     .btn-danger:hover:not(:disabled) { background: #a4262c; }
-    .btn-outline {
-      background: transparent; color: var(--primary);
-      border: 1px solid var(--primary);
-    }
+    .btn-send { background: var(--success); color: #fff; }
+    .btn-send:hover:not(:disabled) { background: #0b6a0b; }
+    .btn-outline { background: transparent; color: var(--primary); border: 1px solid var(--primary); }
     .btn-outline:hover:not(:disabled) { background: rgba(0,120,212,.05); }
-    .btn-sm { padding: 6px 12px; font-size: 12px; min-height: auto; }
+    .btn-sm { padding: 6px 12px; font-size: 12px; min-height: 32px; }
 
     /* 状态 */
     .status-bar {
@@ -109,42 +102,61 @@
     .status-bar.disconnected { background: #fde7e9; color: var(--danger); }
     .status-bar.connecting { background: #fff4ce; color: var(--warning); }
     .status-bar.connected { background: #dff6dd; color: var(--success); }
-    .status-dot {
-      width: 8px; height: 8px; border-radius: 50%; display: inline-block;
-    }
+    .status-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
     .disconnected .status-dot { background: var(--danger); }
     .connecting .status-dot { background: var(--warning); animation: blink 1s infinite; }
     .connected .status-dot { background: var(--success); }
     @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.3} }
 
-    /* 底部固定控制台入口 */
-    .console-bar {
-      position: fixed; bottom: 0; left: 0; right: 0;
-      background: var(--card-bg); border-top: 1px solid var(--border);
-      padding: 12px 16px; box-shadow: 0 -2px 8px rgba(0,0,0,.06);
-      z-index: 100;
+    /* 串口行: 下拉框和刷新按钮水平对齐 */
+    .serial-row {
+      display: flex; gap: 8px; align-items: stretch;
     }
-    .console-bar .inner {
-      max-width: 800px; margin: 0 auto;
-      display: flex; align-items: center; justify-content: space-between;
-    }
-    .console-bar .mode-tag {
-      font-size: 13px; color: var(--text-sec);
-    }
-    .console-bar .mode-tag strong { color: var(--primary); }
+    .serial-row .form-group { flex: 1; justify-content: flex-end; }
+    .serial-row .btn { align-self: flex-end; }
 
-    /* 串口列表刷新 */
-    .serial-row { display: flex; gap: 8px; align-items: flex-end; }
-    .serial-row .form-group:first-child { flex: 1; }
+    /* 控制台 */
+    .console-messages {
+      background: #1e1e1e; border-radius: 6px;
+      min-height: 200px; max-height: 350px; overflow-y: auto;
+      padding: 14px; margin-bottom: 12px;
+      font-family: 'Cascadia Code', 'Fira Code', Consolas, monospace;
+      font-size: 13px; line-height: 1.7;
+    }
+    .console-messages::-webkit-scrollbar { width: 6px; }
+    .console-messages::-webkit-scrollbar-track { background: transparent; }
+    .console-messages::-webkit-scrollbar-thumb { background: #555; border-radius: 3px; }
+    .msg-line { margin-bottom: 2px; word-break: break-all; }
+    .msg-time { color: #6a9955; }
+    .msg-sent { color: #569cd6; }
+    .msg-received { color: #ce9178; }
+    .msg-system { color: #dcdcaa; }
+    .msg-error { color: #f44747; }
+    .empty-hint { color: #555; text-align: center; padding: 40px 20px; font-size: 14px; }
+
+    .send-row { display: flex; gap: 10px; }
+    .send-row input {
+      flex: 1; padding: 10px 14px; border: 1px solid var(--border); border-radius: 6px;
+      font-size: 14px; outline: none; min-height: 40px;
+      transition: border-color .2s;
+    }
+    .send-row input:focus { border-color: var(--primary); }
+    .send-row input:disabled { opacity: .4; }
+
+    .console-toolbar {
+      display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;
+    }
+    .console-toolbar .info { font-size: 12px; color: var(--text-sec); }
 
     @media (max-width: 600px) {
-      body { padding: 10px; padding-bottom: 80px; }
+      body { padding: 10px; }
       .header { flex-direction: column; gap: 10px; text-align: center; }
       .header h1 { font-size: 18px; }
       .form-row { flex-direction: column; }
       .form-group { width: 100%; }
-      .form-group input, .form-group select { width: 100%; }
       .tab { padding: 10px 16px; font-size: 13px; }
+      .send-row { flex-direction: column; }
+      .send-row input { font-size: 16px; } /* 防止iOS缩放 */
     }
   </style>
 </head>
@@ -153,10 +165,7 @@
     <!-- 顶部 -->
     <div class="header">
       <h1>📡 ESP32 EPD EVK 上位机</h1>
-      <div class="nav-links">
-        <a href="/" class="active">主页</a>
-        <a href="/console.html">控制台</a>
-      </div>
+      <span class="mode-badge" id="modeBadge">未连接</span>
     </div>
 
     <!-- 连接配置 -->
@@ -190,16 +199,18 @@
 
         <!-- Serial -->
         <div class="tab-content" id="tab-serial">
-          <div class="serial-row">
-            <div class="form-group">
+          <div class="form-row" style="margin-bottom:12px">
+            <div class="form-group" style="flex:1">
               <label>串口</label>
               <select id="serialPortSelect">
                 <option value="">-- 请选择串口 --</option>
               </select>
             </div>
-            <button class="btn btn-outline btn-sm" id="refreshSerialBtn" style="margin-bottom:22px">🔄 刷新</button>
+            <div style="display:flex;gap:8px;align-items:flex-end;padding-bottom:0">
+              <button class="btn btn-outline btn-sm" id="refreshSerialBtn">🔄 刷新</button>
+            </div>
           </div>
-          <div class="form-row" style="margin-top:12px">
+          <div class="form-row">
             <div class="form-group" style="flex:1">
               <label>波特率</label>
               <select id="baudRateSelect">
@@ -213,17 +224,34 @@
                 <option value="921600">921600</option>
               </select>
             </div>
-            <div style="display:flex;gap:8px;padding-bottom:0">
+            <div style="display:flex;gap:8px;align-items:flex-end;padding-bottom:0">
               <button class="btn btn-primary" id="serialConnectBtn">连接</button>
               <button class="btn btn-danger" id="serialDisconnectBtn" disabled>断开</button>
             </div>
           </div>
         </div>
 
-        <!-- 公共状态 -->
         <div class="status-bar disconnected" id="statusBar">
           <span class="status-dot"></span>
           <span id="statusText">未连接</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 控制台 (内嵌) -->
+    <div class="card" id="consoleCard">
+      <div class="card-header"><span>📟</span> 控制台</div>
+      <div class="card-body">
+        <div class="console-toolbar">
+          <span class="info" id="msgCount">0 条消息</span>
+          <button class="btn btn-outline btn-sm" id="clearMsgBtn">清空日志</button>
+        </div>
+        <div class="console-messages" id="messageArea">
+          <div class="empty-hint">暂无消息，请先连接设备</div>
+        </div>
+        <div class="send-row">
+          <input type="text" id="sendInput" placeholder="输入要发送的消息..." disabled>
+          <button class="btn btn-send" id="sendBtn" disabled>发送</button>
         </div>
       </div>
     </div>
@@ -232,14 +260,13 @@
     <div class="card">
       <div class="card-header"><span>🖼️</span> 图片抖动与取模</div>
       <div class="card-body">
-        <!-- 选择图片 -->
         <div class="form-row" style="margin-bottom:12px">
           <div class="form-group" style="flex:1">
             <label>选择图片</label>
             <input type="file" id="imageInput" accept="image/*" style="padding:8px 0">
           </div>
+          <div id="origSizeInfo" style="font-size:13px;color:var(--text-sec);align-self:flex-end;padding-bottom:8px"></div>
         </div>
-        <!-- 分辨率和色板 -->
         <div class="form-row" style="margin-bottom:12px">
           <div class="form-group">
             <label>目标宽度 (px)</label>
@@ -261,7 +288,6 @@
             <button class="btn btn-primary" id="convertBtn" disabled>转换</button>
           </div>
         </div>
-        <!-- 图片预览对比 -->
         <div id="imagePreview" style="display:none;margin-top:16px">
           <div style="display:flex;gap:16px;flex-wrap:wrap">
             <div style="flex:1;min-width:200px">
@@ -273,7 +299,6 @@
               <canvas id="canvasDithered" style="width:100%;border:1px solid var(--border);border-radius:6px;background:#fff"></canvas>
             </div>
           </div>
-          <!-- 取模数据预览 -->
           <div style="margin-top:16px">
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
               <span style="font-size:13px;font-weight:500;color:var(--text-sec)">取模数据预览</span>
@@ -287,25 +312,27 @@
     </div>
   </div>
 
-  <!-- 底部控制台入口 -->
-  <div class="console-bar">
-    <div class="inner">
-      <span class="mode-tag" id="modeTag">当前模式: <strong>未连接</strong></span>
-      <a href="/console.html" class="btn btn-primary btn-sm">打开控制台 →</a>
-    </div>
-  </div>
-
   <script>
-    // ========== 共享连接状态 (localStorage) ==========
-    function setConnectionState(state) {
-      localStorage.setItem('esp32-conn', JSON.stringify(state));
-    }
-    function getConnectionState() {
-      try { return JSON.parse(localStorage.getItem('esp32-conn')) || {}; } catch { return {}; }
-    }
+    // ========== 元素引用 ==========
+    const ipInput = document.getElementById('ipInput');
+    const portInput = document.getElementById('portInput');
+    const ipHint = document.getElementById('ipHint');
+    const portHint = document.getElementById('portHint');
+    const statusBar = document.getElementById('statusBar');
+    const statusText = document.getElementById('statusText');
+    const modeBadge = document.getElementById('modeBadge');
+    const sendInput = document.getElementById('sendInput');
+    const sendBtn = document.getElementById('sendBtn');
+    const messageArea = document.getElementById('messageArea');
+    const msgCountEl = document.getElementById('msgCount');
+    const origSizeInfo = document.getElementById('origSizeInfo');
+
+    let ws = null;
+    let connected = false;
+    let currentMode = null; // 'tcp' | 'serial'
+    let messageCount = 0;
 
     // ========== WebSocket ==========
-    let ws = null;
     function connectWS() {
       const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
       ws = new WebSocket(`${proto}//${location.host}`);
@@ -317,37 +344,39 @@
     function handleMsg(msg) {
       switch (msg.type) {
         case 'tcp-connected':
-          setConnected('tcp', `已连接到 ${msg.host}:${msg.port}`);
-          setConnectionState({ mode: 'tcp', label: `TCP ${msg.host}:${msg.port}` });
+          onConnected('tcp', `已连接到 ${msg.host}:${msg.port}`, `TCP ${msg.host}:${msg.port}`);
           break;
         case 'tcp-disconnected':
-          setDisconnected(msg.message);
-          setConnectionState({});
+          onDisconnected(msg.message);
           break;
         case 'serial-connected':
-          setConnected('serial', `已连接串口 ${msg.path} @ ${msg.baudRate}`);
-          setConnectionState({ mode: 'serial', label: `串口 ${msg.path}` });
+          onConnected('serial', `已连接串口 ${msg.path} @ ${msg.baudRate}`, `串口 ${msg.path}`);
           break;
         case 'serial-disconnected':
-          setDisconnected(msg.message);
-          setConnectionState({});
+          onDisconnected(msg.message);
           break;
         case 'serial-list':
           populateSerialPorts(msg.ports);
           break;
+        case 'sent':
+          addMessage('sent', msg.data);
+          break;
+        case 'received':
+          addMessage('received', msg.data);
+          break;
         case 'error':
-          addTempMessage(msg.message, 'error');
-          if (msg.message.includes('连接') || msg.message.includes('超时') || msg.message.includes('拒绝') || msg.message.includes('串口')) {
-            setDisconnected(msg.message);
-            setConnectionState({});
+          addMessage('error', msg.message);
+          if (msg.message.includes('连接') || msg.message.includes('超时') || msg.message.includes('拒绝') || msg.message.includes('串口') || msg.message.includes('未连接')) {
+            onDisconnected(msg.message);
           }
           break;
       }
     }
 
-    // ========== 标签切换 ==========
+    // ========== 标签切换 (含互斥) ==========
     document.querySelectorAll('.tab').forEach(tab => {
       tab.addEventListener('click', () => {
+        if (tab.classList.contains('disabled')) return;
         document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
         document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
         tab.classList.add('active');
@@ -355,12 +384,15 @@
       });
     });
 
-    // ========== TCP 校验 ==========
-    const ipInput = document.getElementById('ipInput');
-    const portInput = document.getElementById('portInput');
-    const ipHint = document.getElementById('ipHint');
-    const portHint = document.getElementById('portHint');
+    function setTabLocked(locked) {
+      document.querySelectorAll('.tab').forEach(t => {
+        if (!t.classList.contains('active')) {
+          t.classList.toggle('disabled', locked);
+        }
+      });
+    }
 
+    // ========== 校验 ==========
     function validateIP(ip) {
       if (!ip) return '请输入 IP 地址';
       const m = ip.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
@@ -379,7 +411,7 @@
     ipInput.addEventListener('input', () => { const e = validateIP(ipInput.value.trim()); ipHint.textContent = e; ipInput.classList.toggle('invalid', !!e); });
     portInput.addEventListener('input', () => { const e = validatePort(portInput.value.trim()); portHint.textContent = e; portInput.classList.toggle('invalid', !!e); });
 
-    // ========== TCP 连接 ==========
+    // ========== TCP ==========
     document.getElementById('tcpConnectBtn').onclick = () => {
       const ip = ipInput.value.trim(), port = portInput.value.trim();
       const ie = validateIP(ip), pe = validatePort(port);
@@ -397,14 +429,14 @@
     ipInput.addEventListener('keydown', e => { if (e.key === 'Enter') portInput.focus(); });
     portInput.addEventListener('keydown', e => { if (e.key === 'Enter') document.getElementById('tcpConnectBtn').click(); });
 
-    // ========== Serial 连接 ==========
+    // ========== Serial ==========
     document.getElementById('refreshSerialBtn').onclick = () => {
       if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'serial-list' }));
     };
     document.getElementById('serialConnectBtn').onclick = () => {
       const portPath = document.getElementById('serialPortSelect').value;
       const baud = document.getElementById('baudRateSelect').value;
-      if (!portPath) { addTempMessage('请选择串口', 'error'); return; }
+      if (!portPath) { addMessage('error', '请选择串口'); return; }
       if (!ws || ws.readyState !== 1) return;
       setStatus('connecting', `正在连接串口 ${portPath} ...`);
       document.getElementById('serialConnectBtn').disabled = true;
@@ -413,7 +445,6 @@
     document.getElementById('serialDisconnectBtn').onclick = () => {
       if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'serial-disconnect' }));
     };
-
     function populateSerialPorts(ports) {
       const sel = document.getElementById('serialPortSelect');
       sel.innerHTML = '<option value="">-- 请选择串口 --</option>';
@@ -427,36 +458,54 @@
     }
 
     // ========== 状态管理 ==========
-    const statusBar = document.getElementById('statusBar');
-    const statusText = document.getElementById('statusText');
-    const modeTag = document.getElementById('modeTag');
-
     function setStatus(state, text) {
       statusBar.className = 'status-bar ' + state;
       statusText.textContent = text;
     }
 
-    function setConnected(mode, text) {
-      setStatus('connected', text);
-      modeTag.innerHTML = `当前模式: <strong>${mode === 'tcp' ? 'TCP' : '串口'}</strong>`;
+    function onConnected(mode, statusMsg, badgeLabel) {
+      connected = true;
+      currentMode = mode;
+      setStatus('connected', statusMsg);
+      modeBadge.textContent = badgeLabel;
+
+      // 启用发送
+      sendInput.disabled = false;
+      sendBtn.disabled = false;
+      sendInput.focus();
+
+      // 锁定标签
+      setTabLocked(true);
+
       if (mode === 'tcp') {
         document.getElementById('tcpConnectBtn').disabled = true;
         document.getElementById('tcpDisconnectBtn').disabled = false;
         ipInput.disabled = true; portInput.disabled = true;
-        document.getElementById('serialConnectBtn').disabled = true;
       } else {
         document.getElementById('serialConnectBtn').disabled = true;
         document.getElementById('serialDisconnectBtn').disabled = false;
         document.getElementById('serialPortSelect').disabled = true;
         document.getElementById('baudRateSelect').disabled = true;
         document.getElementById('refreshSerialBtn').disabled = true;
-        document.getElementById('tcpConnectBtn').disabled = true;
       }
+
+      addMessage('system', statusMsg);
     }
 
-    function setDisconnected(reason) {
+    function onDisconnected(reason) {
+      connected = false;
+      currentMode = null;
       setStatus('disconnected', reason || '未连接');
-      modeTag.innerHTML = '当前模式: <strong>未连接</strong>';
+      modeBadge.textContent = '未连接';
+
+      // 禁用发送
+      sendInput.disabled = true;
+      sendBtn.disabled = true;
+
+      // 解锁标签
+      setTabLocked(false);
+
+      // 恢复所有按钮
       document.getElementById('tcpConnectBtn').disabled = false;
       document.getElementById('tcpDisconnectBtn').disabled = true;
       ipInput.disabled = false; portInput.disabled = false;
@@ -465,23 +514,45 @@
       document.getElementById('serialPortSelect').disabled = false;
       document.getElementById('baudRateSelect').disabled = false;
       document.getElementById('refreshSerialBtn').disabled = false;
+
+      if (reason) addMessage('system', reason);
     }
 
-    function addTempMessage(text, type) {
-      // 在状态栏下方临时显示错误
-      console.log(`[${type}] ${text}`);
+    // ========== 控制台: 发送与消息 ==========
+    function handleSend() {
+      const data = sendInput.value;
+      if (!data) return;
+      if (!connected) { addMessage('error', '请先连接设备'); return; }
+      if (ws && ws.readyState === 1) {
+        ws.send(JSON.stringify({ type: 'send', data }));
+        sendInput.value = '';
+        sendInput.focus();
+      }
+    }
+    sendBtn.onclick = handleSend;
+    sendInput.addEventListener('keydown', e => { if (e.key === 'Enter') handleSend(); });
+
+    document.getElementById('clearMsgBtn').onclick = () => {
+      messageCount = 0;
+      msgCountEl.textContent = '0 条消息';
+      messageArea.innerHTML = '<div class="empty-hint">暂无消息，请先连接设备</div>';
+    };
+
+    function addMessage(type, text) {
+      const emptyHint = messageArea.querySelector('.empty-hint');
+      if (emptyHint) emptyHint.remove();
+      messageCount++;
+      msgCountEl.textContent = `${messageCount} 条消息`;
+      const time = new Date().toLocaleTimeString('zh-CN', { hour12: false });
+      const div = document.createElement('div');
+      div.className = 'msg-line';
+      let prefix = { sent: '⬆ 发送', received: '⬇ 接收', system: 'ℹ 系统', error: '✖ 错误' }[type] || '';
+      div.innerHTML = `<span class="msg-time">[${time}]</span> <span class="msg-${type}">${prefix}: ${esc(text)}</span>`;
+      messageArea.appendChild(div);
+      messageArea.scrollTop = messageArea.scrollHeight;
     }
 
-    // ========== 初始化 ==========
-    connectWS();
-    // 页面加载时自动刷新串口列表
-    setTimeout(() => { if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'serial-list' })); }, 1000);
-
-    // 恢复连接状态显示
-    const saved = getConnectionState();
-    if (saved.mode) {
-      modeTag.innerHTML = `当前模式: <strong>${saved.mode === 'tcp' ? 'TCP' : '串口'}</strong> (${saved.label})`;
-    }
+    function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
 
     // ========== 图片抖动与取模 ==========
     const imageInput = document.getElementById('imageInput');
@@ -492,7 +563,6 @@
     const modDataPreview = document.getElementById('modDataPreview');
     const modDataInfo = document.getElementById('modDataInfo');
     const copyDataBtn = document.getElementById('copyDataBtn');
-
     let loadedImage = null;
 
     imageInput.addEventListener('change', (e) => {
@@ -502,6 +572,8 @@
       img.onload = () => {
         loadedImage = img;
         convertBtn.disabled = false;
+        // 显示原始尺寸
+        origSizeInfo.textContent = `原始尺寸: ${img.width} × ${img.height} px`;
         // 显示原图
         const ctx = canvasOrig.getContext('2d');
         canvasOrig.width = img.width;
@@ -519,30 +591,17 @@
       const w = parseInt(document.getElementById('targetWidth').value) || 296;
       const h = parseInt(document.getElementById('targetHeight').value) || 128;
       const palette = document.getElementById('paletteSelect').value;
-
-      // 缩放图片到目标分辨率
       const tempCanvas = document.createElement('canvas');
-      tempCanvas.width = w;
-      tempCanvas.height = h;
+      tempCanvas.width = w; tempCanvas.height = h;
       const tempCtx = tempCanvas.getContext('2d');
       tempCtx.drawImage(loadedImage, 0, 0, w, h);
       const imageData = tempCtx.getImageData(0, 0, w, h);
-
-      // 执行抖动
       const dithered = floydSteinbergDither(imageData, palette);
-
-      // 显示抖动后的图片
-      canvasDith.width = w;
-      canvasDith.height = h;
-      const dithCtx = canvasDith.getContext('2d');
-      dithCtx.putImageData(dithered, 0, 0);
-
-      // 取模
+      canvasDith.width = w; canvasDith.height = h;
+      canvasDith.getContext('2d').putImageData(dithered, 0, 0);
       const modResult = generateModData(dithered, palette);
       modDataPreview.textContent = modResult.hex;
       modDataInfo.textContent = `分辨率: ${w}×${h} | 数据大小: ${modResult.bytes.length} 字节 | 色板: ${getPaletteName(palette)}`;
-
-      // 保存取模数据供复制
       copyDataBtn.onclick = () => {
         navigator.clipboard.writeText(modResult.hex).then(() => {
           copyDataBtn.textContent = '已复制 ✓';
@@ -551,172 +610,85 @@
       };
     });
 
-    function getPaletteName(p) {
-      return { bw1: '黑白 1bit', bwr1: '黑白红 1bit', bwyr2: '黑白黄红 2bit' }[p] || p;
-    }
+    function getPaletteName(p) { return { bw1:'黑白 1bit', bwr1:'黑白红 1bit', bwyr2:'黑白黄红 2bit' }[p] || p; }
 
-    // ========== Floyd-Steinberg 抖动算法 ==========
     function floydSteinbergDither(imageData, palette) {
       const w = imageData.width, h = imageData.height;
       const data = new Float32Array(imageData.data.length);
       for (let i = 0; i < data.length; i++) data[i] = imageData.data[i];
-
-      const paletteColors = getPaletteColors(palette);
-
+      const pal = getPaletteColors(palette);
       for (let y = 0; y < h; y++) {
         for (let x = 0; x < w; x++) {
           const idx = (y * w + x) * 4;
-          const oldR = data[idx], oldG = data[idx + 1], oldB = data[idx + 2];
-
-          // 找到最近的调色板颜色
-          const nearest = findNearestColor(oldR, oldG, oldB, paletteColors);
-          data[idx] = nearest[0];
-          data[idx + 1] = nearest[1];
-          data[idx + 2] = nearest[2];
-          data[idx + 3] = 255;
-
-          // 误差扩散
-          const errR = oldR - nearest[0];
-          const errG = oldG - nearest[1];
-          const errB = oldB - nearest[2];
-
-          diffuseError(data, w, h, x + 1, y, errR, errG, errB, 7 / 16);
-          diffuseError(data, w, h, x - 1, y + 1, errR, errG, errB, 3 / 16);
-          diffuseError(data, w, h, x, y + 1, errR, errG, errB, 5 / 16);
-          diffuseError(data, w, h, x + 1, y + 1, errR, errG, errB, 1 / 16);
+          const oR = data[idx], oG = data[idx+1], oB = data[idx+2];
+          const n = findNearest(oR, oG, oB, pal);
+          data[idx] = n[0]; data[idx+1] = n[1]; data[idx+2] = n[2]; data[idx+3] = 255;
+          const eR = oR - n[0], eG = oG - n[1], eB = oB - n[2];
+          diffuse(data, w, h, x+1, y, eR, eG, eB, 7/16);
+          diffuse(data, w, h, x-1, y+1, eR, eG, eB, 3/16);
+          diffuse(data, w, h, x, y+1, eR, eG, eB, 5/16);
+          diffuse(data, w, h, x+1, y+1, eR, eG, eB, 1/16);
         }
       }
-
       const result = new ImageData(w, h);
       for (let i = 0; i < data.length; i++) result.data[i] = Math.round(data[i]);
       return result;
     }
-
-    function diffuseError(data, w, h, x, y, eR, eG, eB, factor) {
+    function diffuse(d, w, h, x, y, eR, eG, eB, f) {
       if (x < 0 || x >= w || y < 0 || y >= h) return;
-      const idx = (y * w + x) * 4;
-      data[idx]     = Math.max(0, Math.min(255, data[idx]     + eR * factor));
-      data[idx + 1] = Math.max(0, Math.min(255, data[idx + 1] + eG * factor));
-      data[idx + 2] = Math.max(0, Math.min(255, data[idx + 2] + eB * factor));
+      const i = (y * w + x) * 4;
+      d[i] = Math.max(0, Math.min(255, d[i] + eR * f));
+      d[i+1] = Math.max(0, Math.min(255, d[i+1] + eG * f));
+      d[i+2] = Math.max(0, Math.min(255, d[i+2] + eB * f));
+    }
+    function findNearest(r, g, b, pal) {
+      let min = Infinity, best = pal[0];
+      for (const c of pal) { const d = (r-c[0])**2+(g-c[1])**2+(b-c[2])**2; if (d < min) { min = d; best = c; } }
+      return best;
+    }
+    function getPaletteColors(p) {
+      if (p === 'bw1') return [[0,0,0],[255,255,255]];
+      if (p === 'bwr1') return [[0,0,0],[255,255,255],[255,0,0]];
+      if (p === 'bwyr2') return [[0,0,0],[255,255,255],[255,255,0],[255,0,0]];
+      return [[0,0,0],[255,255,255]];
     }
 
-    function findNearestColor(r, g, b, palette) {
-      let minDist = Infinity, nearest = palette[0];
-      for (const c of palette) {
-        const d = (r - c[0]) ** 2 + (g - c[1]) ** 2 + (b - c[2]) ** 2;
-        if (d < minDist) { minDist = d; nearest = c; }
-      }
-      return nearest;
-    }
-
-    function getPaletteColors(palette) {
-      switch (palette) {
-        case 'bw1':
-          return [[0,0,0], [255,255,255]];
-        case 'bwr1':
-          return [[0,0,0], [255,255,255], [255,0,0]];
-        case 'bwyr2':
-          return [[0,0,0], [255,255,255], [255,255,0], [255,0,0]];
-        default:
-          return [[0,0,0], [255,255,255]];
-      }
-    }
-
-    // ========== 取模数据生成 ==========
     function generateModData(imageData, palette) {
-      const w = imageData.width, h = imageData.height;
-      const data = imageData.data;
-      const bytes = [];
-
-      switch (palette) {
-        case 'bw1': {
-          // 黑白1bit: 每像素1bit, 0=黑, 1=白, 每行按字节对齐
-          const rowBytes = Math.ceil(w / 8);
-          for (let y = 0; y < h; y++) {
-            for (let xb = 0; xb < rowBytes; xb++) {
-              let byte = 0;
-              for (let bit = 0; bit < 8; bit++) {
-                const x = xb * 8 + bit;
-                if (x < w) {
-                  const idx = (y * w + x) * 4;
-                  const lum = data[idx] * 0.299 + data[idx+1] * 0.587 + data[idx+2] * 0.114;
-                  if (lum > 128) byte |= (1 << (7 - bit)); // 白色=1
-                }
-              }
-              bytes.push(byte);
-            }
-          }
-          break;
+      const w = imageData.width, h = imageData.height, data = imageData.data, bytes = [];
+      if (palette === 'bw1') {
+        const rowBytes = Math.ceil(w / 8);
+        for (let y = 0; y < h; y++) for (let xb = 0; xb < rowBytes; xb++) {
+          let byte = 0;
+          for (let bit = 0; bit < 8; bit++) { const x = xb*8+bit; if (x < w) { const i=(y*w+x)*4; if (data[i]*.299+data[i+1]*.587+data[i+2]*.114>128) byte |= (1<<(7-bit)); } }
+          bytes.push(byte);
         }
-        case 'bwr1': {
-          // 黑白红1bit: 两层, 第一层黑白, 第二层红色
-          const rowBytes = Math.ceil(w / 8);
-          // 黑白层
-          for (let y = 0; y < h; y++) {
-            for (let xb = 0; xb < rowBytes; xb++) {
-              let byte = 0;
-              for (let bit = 0; bit < 8; bit++) {
-                const x = xb * 8 + bit;
-                if (x < w) {
-                  const idx = (y * w + x) * 4;
-                  const r = data[idx], g = data[idx+1], b = data[idx+2];
-                  const isRed = r > 200 && g < 80 && b < 80;
-                  const lum = r * 0.299 + g * 0.587 + b * 0.114;
-                  // 黑白层: 非红色且亮>128 → 白(1), 否则黑(0)
-                  if (!isRed && lum > 128) byte |= (1 << (7 - bit));
-                }
-              }
-              bytes.push(byte);
-            }
-          }
-          // 红色层
-          for (let y = 0; y < h; y++) {
-            for (let xb = 0; xb < rowBytes; xb++) {
-              let byte = 0;
-              for (let bit = 0; bit < 8; bit++) {
-                const x = xb * 8 + bit;
-                if (x < w) {
-                  const idx = (y * w + x) * 4;
-                  const r = data[idx], g = data[idx+1], b = data[idx+2];
-                  const isRed = r > 200 && g < 80 && b < 80;
-                  if (isRed) byte |= (1 << (7 - bit));
-                }
-              }
-              bytes.push(byte);
-            }
-          }
-          break;
+      } else if (palette === 'bwr1') {
+        const rowBytes = Math.ceil(w / 8);
+        for (let y = 0; y < h; y++) for (let xb = 0; xb < rowBytes; xb++) {
+          let byte = 0;
+          for (let bit = 0; bit < 8; bit++) { const x=xb*8+bit; if(x<w){const i=(y*w+x)*4; const r=data[i],g=data[i+1],b=data[i+2]; const isR=r>200&&g<80&&b<80; if(!isR&&r*.299+g*.587+b*.114>128) byte|=(1<<(7-bit));} }
+          bytes.push(byte);
         }
-        case 'bwyr2': {
-          // 黑白黄红2bit: 每像素2bit
-          // 00=黑, 01=白, 10=黄, 11=红
-          const rowBytes = Math.ceil(w / 4);
-          for (let y = 0; y < h; y++) {
-            for (let xb = 0; xb < rowBytes; xb++) {
-              let byte = 0;
-              for (let px = 0; px < 4; px++) {
-                const x = xb * 4 + px;
-                if (x < w) {
-                  const idx = (y * w + x) * 4;
-                  const r = data[idx], g = data[idx+1], b = data[idx+2];
-                  let val = 0;
-                  if (r > 200 && g < 80 && b < 80) val = 3; // 红
-                  else if (r > 200 && g > 200 && b < 80) val = 2; // 黄
-                  else if (r * 0.299 + g * 0.587 + b * 0.114 > 128) val = 1; // 白
-                  byte |= (val << (6 - px * 2));
-                }
-              }
-              bytes.push(byte);
-            }
-          }
-          break;
+        for (let y = 0; y < h; y++) for (let xb = 0; xb < rowBytes; xb++) {
+          let byte = 0;
+          for (let bit = 0; bit < 8; bit++) { const x=xb*8+bit; if(x<w){const i=(y*w+x)*4; if(data[i]>200&&data[i+1]<80&&data[i+2]<80) byte|=(1<<(7-bit));} }
+          bytes.push(byte);
+        }
+      } else if (palette === 'bwyr2') {
+        const rowBytes = Math.ceil(w / 4);
+        for (let y = 0; y < h; y++) for (let xb = 0; xb < rowBytes; xb++) {
+          let byte = 0;
+          for (let px = 0; px < 4; px++) { const x=xb*4+px; if(x<w){const i=(y*w+x)*4; const r=data[i],g=data[i+1],b=data[i+2]; let v=0; if(r>200&&g<80&&b<80)v=3; else if(r>200&&g>200&&b<80)v=2; else if(r*.299+g*.587+b*.114>128)v=1; byte|=(v<<(6-px*2));} }
+          bytes.push(byte);
         }
       }
-
-      // 生成十六进制字符串
       const hex = bytes.map(b => '0x' + b.toString(16).padStart(2, '0').toUpperCase()).join(', ');
       return { bytes, hex };
     }
+
+    // ========== 初始化 ==========
+    connectWS();
+    setTimeout(() => { if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'serial-list' })); }, 1000);
   </script>
 </body>
 </html>
