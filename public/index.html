@@ -269,6 +269,9 @@
           <input type="text" id="sendInput" placeholder="输入要发送的消息..." disabled>
           <button class="btn btn-send" id="sendBtn" disabled>发送</button>
         </div>
+        <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn btn-outline" id="protoBtn00" disabled>CMD 0x00</button>
+        </div>
       </div>
     </div>
 
@@ -378,6 +381,9 @@
           break;
         case 'sent':
           addMessage('sent', msg.data);
+          break;
+        case 'proto-sent':
+          addMessage('system', `[协议] 已发送: ${msg.hex}`);
           break;
         case 'received':
           addMessage('received', msg.data);
@@ -490,6 +496,7 @@
       // 启用发送
       sendInput.disabled = false;
       sendBtn.disabled = false;
+      document.getElementById('protoBtn00').disabled = false;
       sendInput.focus();
 
       // 锁定标签
@@ -519,6 +526,7 @@
       // 禁用发送
       sendInput.disabled = true;
       sendBtn.disabled = true;
+      document.getElementById('protoBtn00').disabled = true;
 
       // 解锁标签
       setTabLocked(false);
@@ -549,6 +557,41 @@
     }
     sendBtn.onclick = handleSend;
     sendInput.addEventListener('keydown', e => { if (e.key === 'Enter') handleSend(); });
+
+    // ========== 协议发送 ==========
+    const PROTO_HEAD = 0xAA;
+
+    function crc16Modbus(data) {
+      let crc = 0xFFFF;
+      for (let i = 0; i < data.length; i++) {
+        crc ^= data[i];
+        for (let j = 0; j < 8; j++) {
+          if (crc & 1) crc = (crc >> 1) ^ 0xA001;
+          else crc >>= 1;
+        }
+      }
+      return crc;
+    }
+
+    function buildProtoFrame(cmd, data) {
+      const len = data ? data.length : 0;
+      const body = [PROTO_HEAD, cmd, (len >> 8) & 0xFF, len & 0xFF];
+      if (len > 0) body.push(...data);
+      const crc = crc16Modbus(body);
+      body.push(crc & 0xFF, (crc >> 8) & 0xFF);
+      return body;
+    }
+
+    function sendProtoFrame(cmd, data) {
+      if (!connected) { addMessage('error', '请先连接设备'); return; }
+      const frame = buildProtoFrame(cmd, data || []);
+      const hexStr = frame.map(b => b.toString(16).padStart(2, '0').toUpperCase()).join(' ');
+      addMessage('sent', `[协议] CMD 0x${cmd.toString(16).padStart(2, '0').toUpperCase()}: ${hexStr}`);
+      ws.send(JSON.stringify({ type: 'proto-send', frame }));
+    }
+
+    // CMD 0x00 按钮
+    document.getElementById('protoBtn00').onclick = () => sendProtoFrame(0x00, []);
 
     document.getElementById('clearMsgBtn').onclick = () => {
       messageCount = 0;

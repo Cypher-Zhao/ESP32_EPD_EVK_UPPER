@@ -9,6 +9,73 @@
 
 首先实现 tcp通讯，能够输入目标地址和端口，然后连接成功后，可以发送消息给下位机（发送功能测试用，实际上并不通过编辑消息的方式发送）
 
+## 3. 通讯协议
+- 上下位机通讯协议如下
+
+```c
+#define PROTO_HEAD          0xAA
+#define PROTO_MAX_DATA_LEN  4096    /* 单帧最大 DATA 长度，可按需调整 */
+
+/* ── CRC16-MODBUS ─────────────────────────────────────────── */
+static uint16_t crc16_modbus(const uint8_t *data, size_t len)
+{
+    uint16_t crc = 0xFFFF;
+    for (size_t i = 0; i < len; i++)
+    {
+        crc ^= data[i];
+        for (int j = 0; j < 8; j++)
+        {
+            if (crc & 1)
+            {
+                crc = (crc >> 1) ^ 0xA001;
+            }
+            else
+            {
+                crc >>= 1;
+            }
+        }
+    }
+    return crc;
+}
+
+void proto_send(proto_channel_t ch, uint8_t cmd, const uint8_t *data, uint16_t len)
+{
+    if (len > PROTO_MAX_DATA_LEN)
+    {
+        ESP_LOGE(TAG, "send len %u > MAX %u", len, PROTO_MAX_DATA_LEN);
+        return;
+    }
+
+    /* 构造帧: HEAD + CMD + LEN_H + LEN_L + DATA + CRC_L + CRC_H */
+    size_t frame_len = 4 + len + 2;
+    uint8_t *frame = (uint8_t *)malloc(frame_len);
+    if (frame == NULL)
+    {
+        ESP_LOGE(TAG, "send malloc failed");
+        return;
+    }
+
+    size_t pos = 0;
+    frame[pos++] = PROTO_HEAD;
+    frame[pos++] = cmd;
+    frame[pos++] = (uint8_t)(len >> 8);
+    frame[pos++] = (uint8_t)(len & 0xFF);
+    if (len > 0 && data != NULL)
+    {
+        memcpy(frame + pos, data, len);
+        pos += len;
+    }
+
+    uint16_t crc = crc16_modbus(frame, pos);
+    frame[pos++] = (uint8_t)(crc & 0xFF); /* CRC 低字节在前 */
+    frame[pos++] = (uint8_t)(crc >> 8);
+
+    send_via_channel(ch, frame, pos);
+    free(frame);
+}
+
+```
+
 ## A. 本项目目标 打勾表示已完成
 - [x] 网页需要在手机和电脑上都能正常操作
 - [x] 实现ip地址和端口输入框，以及连接按钮，连接成功后显示连接成功，连接失败显示连接失败，并为输入框加上一定程度的校验

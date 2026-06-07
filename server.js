@@ -34,6 +34,7 @@ wss.on('connection', (ws) => {
       case 'serial-connect':    return handleSerialConnect(ws, msg, state);
       case 'serial-disconnect': return handleSerialDisconnect(ws, state);
       case 'send':              return handleSend(ws, msg, state);
+      case 'proto-send':        return handleProtoSend(ws, msg, state);
       default: send(ws, { type: 'error', message: `未知消息类型: ${msg.type}` });
     }
   });
@@ -185,6 +186,28 @@ function handleSend(ws, msg, state) {
     state.serialPort.write(data, (err) => {
       if (err) send(ws, { type: 'error', message: `发送失败: ${err.message}` });
       else send(ws, { type: 'sent', data });
+    });
+  } else {
+    send(ws, { type: 'error', message: '未连接到设备，请先连接' });
+  }
+}
+
+// ==================== 协议发送 ====================
+function handleProtoSend(ws, msg, state) {
+  const { frame } = msg; // 前端构建好的协议帧 (字节数组)
+  if (!frame || !Array.isArray(frame)) {
+    return send(ws, { type: 'error', message: '无效的协议帧数据' });
+  }
+  const buf = Buffer.from(frame);
+  if (state.mode === 'tcp' && state.tcpClient && !state.tcpClient.destroyed) {
+    state.tcpClient.write(buf, (err) => {
+      if (err) send(ws, { type: 'error', message: `协议发送失败: ${err.message}` });
+      else send(ws, { type: 'proto-sent', hex: buf.toString('hex').toUpperCase() });
+    });
+  } else if (state.mode === 'serial' && state.serialPort && state.serialPort.isOpen) {
+    state.serialPort.write(buf, (err) => {
+      if (err) send(ws, { type: 'error', message: `协议发送失败: ${err.message}` });
+      else send(ws, { type: 'proto-sent', hex: buf.toString('hex').toUpperCase() });
     });
   } else {
     send(ws, { type: 'error', message: '未连接到设备，请先连接' });
