@@ -276,6 +276,7 @@
         </div>
         <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
           <button class="btn btn-outline" id="protoBtn00" disabled>CMD 0x00</button>
+          <button class="btn btn-outline" id="protoBtn10" disabled>CMD 0x10 全屏刷新</button>
         </div>
       </div>
     </div>
@@ -357,6 +358,7 @@
     let connected = false;
     let currentMode = null; // 'tcp' | 'serial'
     let messageCount = 0;
+    let rxBuffer = []; // 接收缓冲区，处理粘包
 
     // ========== WebSocket ==========
     function connectWS() {
@@ -390,11 +392,43 @@
         case 'proto-sent':
           addMessage('system', `[协议] 已发送: ${msg.hex}`);
           break;
-        case 'received':
-          if (shouldShowReceived(msg)) {
-            addMessage('received', msg.data);
+        case 'received': {
+          // 将收到的字节追加到接收缓冲区
+          if (msg.bytes) rxBuffer.push(...msg.bytes);
+          // 从缓冲区中提取所有完整的协议帧
+          const filterOn = document.getElementById('protoFilterToggle').checked;
+          while (true) {
+            // 跳过非帧头字节
+            while (rxBuffer.length > 0 && rxBuffer[0] !== PROTO_HEAD) {
+              if (!filterOn) {
+                // 显示全部模式：非协议数据也显示
+                addMessage('received', msg.data);
+              }
+              rxBuffer.shift();
+            }
+            if (rxBuffer.length < 6) break; // 数据不够，等待下次
+            const dataLen = (rxBuffer[2] << 8) | rxBuffer[3];
+            const frameLen = 4 + dataLen + 2;
+            if (rxBuffer.length < frameLen) break; // 帧不完整，等待下次
+            // 提取一帧
+            const frameBytes = rxBuffer.splice(0, frameLen);
+            const parsed = parseProtoFrame(frameBytes);
+            if (!parsed) {
+              // CRC 校验失败，跳过这个帧头，继续扫描
+              rxBuffer.unshift(...frameBytes.slice(1));
+              continue;
+            }
+            if (filterOn) {
+              if (parsed.cmd === 0x00 && parsed.dataLen > 0) {
+                const str = new TextDecoder().decode(new Uint8Array(parsed.data));
+                addMessage('received', str);
+              } else {
+                addMessage('received', parsed.data.map(b => b.toString(16).padStart(2,'0').toUpperCase()).join(' '));
+              }
+            }
           }
           break;
+        }
         case 'error':
           addMessage('error', msg.message);
           if (msg.message.includes('连接') || msg.message.includes('超时') || msg.message.includes('拒绝') || msg.message.includes('串口') || msg.message.includes('未连接')) {
@@ -504,6 +538,7 @@
       sendInput.disabled = false;
       sendBtn.disabled = false;
       document.getElementById('protoBtn00').disabled = false;
+      document.getElementById('protoBtn10').disabled = false;
       sendInput.focus();
 
       // 锁定标签
@@ -534,6 +569,7 @@
       sendInput.disabled = true;
       sendBtn.disabled = true;
       document.getElementById('protoBtn00').disabled = true;
+      document.getElementById('protoBtn10').disabled = true;
 
       // 解锁标签
       setTabLocked(false);
@@ -568,21 +604,17 @@
     // ========== 协议发送 ==========
     const PROTO_HEAD = 0xAA;
 
-    // 协议过滤开关
-    function shouldShowReceived(msg) {
-      const filterOn = document.getElementById('protoFilterToggle').checked;
-      if (!filterOn) return true; // 显示全部
-      // 仅显示协议消息：检查 bytes 是否符合协议帧格式
-      const bytes = msg.bytes;
-      if (!bytes || bytes.length < 6) return false;
-      if (bytes[0] !== PROTO_HEAD) return false;
+    // 协议解析
+    function parseProtoFrame(bytes) {
+      if (!bytes || bytes.length < 6) return null;
+      if (bytes[0] !== PROTO_HEAD) return null;
       const dataLen = (bytes[2] << 8) | bytes[3];
       const frameLen = 4 + dataLen + 2;
-      if (bytes.length < frameLen) return false;
-      // 验证 CRC16-MODBUS
+      if (bytes.length < frameLen) return null;
       const receivedCrc = bytes[frameLen - 2] | (bytes[frameLen - 1] << 8);
       const calcCrc = crc16Modbus(bytes.slice(0, frameLen - 2));
-      return receivedCrc === calcCrc;
+      if (receivedCrc !== calcCrc) return null;
+      return { cmd: bytes[1], dataLen, data: bytes.slice(4, 4 + dataLen) };
     }
 
     function crc16Modbus(data) {
@@ -616,6 +648,9 @@
 
     // CMD 0x00 按钮
     document.getElementById('protoBtn00').onclick = () => sendProtoFrame(0x00, []);
+
+    // CMD 0x10 全屏刷新，DATA: [color_id=1]
+    document.getElementById('protoBtn10').onclick = () => sendProtoFrame(0x10, [0x01]);
 
     document.getElementById('clearMsgBtn').onclick = () => {
       messageCount = 0;
