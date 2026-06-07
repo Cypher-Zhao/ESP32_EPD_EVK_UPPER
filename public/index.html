@@ -277,6 +277,7 @@
         <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
           <button class="btn btn-outline" id="protoBtn00" disabled>CMD 0x00</button>
           <button class="btn btn-outline" id="protoBtn10" disabled>CMD 0x10 全屏刷新</button>
+          <button class="btn btn-outline" id="protoBtn21" disabled>REV 0x21</button>
         </div>
       </div>
     </div>
@@ -539,6 +540,7 @@
       sendBtn.disabled = false;
       document.getElementById('protoBtn00').disabled = false;
       document.getElementById('protoBtn10').disabled = false;
+      document.getElementById('protoBtn21').disabled = false;
       sendInput.focus();
 
       // 锁定标签
@@ -570,6 +572,7 @@
       sendBtn.disabled = true;
       document.getElementById('protoBtn00').disabled = true;
       document.getElementById('protoBtn10').disabled = true;
+      document.getElementById('protoBtn21').disabled = true;
 
       // 解锁标签
       setTabLocked(false);
@@ -651,6 +654,9 @@
 
     // CMD 0x10 全屏刷新，DATA: [color_id=1]
     document.getElementById('protoBtn10').onclick = () => sendProtoFrame(0x10, [0x01]);
+
+    // CMD 0x21 REV
+    document.getElementById('protoBtn21').onclick = () => sendProtoFrame(0x21, []);
 
     document.getElementById('clearMsgBtn').onclick = () => {
       messageCount = 0;
