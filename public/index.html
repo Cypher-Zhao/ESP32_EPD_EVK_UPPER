@@ -260,7 +260,12 @@
       <div class="card-body">
         <div class="console-toolbar">
           <span class="info" id="msgCount">0 条消息</span>
-          <button class="btn btn-outline btn-sm" id="clearMsgBtn">清空日志</button>
+          <div style="display:flex;align-items:center;gap:10px">
+            <label style="font-size:12px;color:var(--text-sec);display:flex;align-items:center;gap:5px;cursor:pointer;user-select:none">
+              <input type="checkbox" id="protoFilterToggle" checked style="cursor:pointer"> 仅显示协议消息
+            </label>
+            <button class="btn btn-outline btn-sm" id="clearMsgBtn">清空日志</button>
+          </div>
         </div>
         <div class="console-messages" id="messageArea">
           <div class="empty-hint">暂无消息，请先连接设备</div>
@@ -386,7 +391,9 @@
           addMessage('system', `[协议] 已发送: ${msg.hex}`);
           break;
         case 'received':
-          addMessage('received', msg.data);
+          if (shouldShowReceived(msg)) {
+            addMessage('received', msg.data);
+          }
           break;
         case 'error':
           addMessage('error', msg.message);
@@ -560,6 +567,23 @@
 
     // ========== 协议发送 ==========
     const PROTO_HEAD = 0xAA;
+
+    // 协议过滤开关
+    function shouldShowReceived(msg) {
+      const filterOn = document.getElementById('protoFilterToggle').checked;
+      if (!filterOn) return true; // 显示全部
+      // 仅显示协议消息：检查 bytes 是否符合协议帧格式
+      const bytes = msg.bytes;
+      if (!bytes || bytes.length < 6) return false;
+      if (bytes[0] !== PROTO_HEAD) return false;
+      const dataLen = (bytes[2] << 8) | bytes[3];
+      const frameLen = 4 + dataLen + 2;
+      if (bytes.length < frameLen) return false;
+      // 验证 CRC16-MODBUS
+      const receivedCrc = bytes[frameLen - 2] | (bytes[frameLen - 1] << 8);
+      const calcCrc = crc16Modbus(bytes.slice(0, frameLen - 2));
+      return receivedCrc === calcCrc;
+    }
 
     function crc16Modbus(data) {
       let crc = 0xFFFF;

@@ -76,7 +76,7 @@ function handleTcpConnect(ws, msg, state) {
   });
 
   client.on('data', (data) => {
-    send(ws, { type: 'received', data: data.toString('utf-8') });
+    send(ws, { type: 'received', data: data.toString('utf-8'), bytes: Array.from(data) });
   });
 
   client.on('timeout', () => {
@@ -147,7 +147,7 @@ function handleSerialConnect(ws, msg, state) {
   });
 
   port.on('data', (data) => {
-    send(ws, { type: 'received', data: data.toString('utf-8') });
+    send(ws, { type: 'received', data: data.toString('utf-8'), bytes: Array.from(data) });
   });
 
   port.on('error', (err) => {
