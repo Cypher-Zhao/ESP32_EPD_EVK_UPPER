@@ -96,5 +96,6 @@ void proto_send(proto_channel_t ch, uint8_t cmd, const uint8_t *data, uint16_t l
 - [x] 设备连接 控制台 图片都懂与取模页面等需要添加折叠支持
 - [x] 加入一个新按钮，弹出新窗口来显示转换后的图片，当然图片未转换时禁用或隐藏。新页面按照刚才解决预览问题的方式
 - [x] 控制台工具栏新增了 "仅显示协议消息" 复选开关
+- [x] 在串口连接的窗口中加入设置wifi的ssid 密码 ，连接wifi 断开wifi wifi状态的共五组控件
 
 ## B.待修复

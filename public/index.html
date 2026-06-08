@@ -245,6 +245,36 @@
               <button class="btn btn-danger" id="serialDisconnectBtn" disabled>断开</button>
             </div>
           </div>
+          <!-- WiFi 配置 -->
+          <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border)">
+            <div style="font-size:14px;font-weight:600;margin-bottom:12px">WiFi 配置</div>
+            <div class="form-row" style="margin-bottom:10px">
+              <div class="form-group" style="flex:2">
+                <label>SSID</label>
+                <input type="text" id="wifiSsidInput" placeholder="WiFi 名称" maxlength="63" disabled>
+              </div>
+              <div style="display:flex;align-items:flex-end;padding-bottom:0">
+                <button class="btn btn-primary" id="wifiSetSsidBtn" disabled>设置 SSID</button>
+              </div>
+            </div>
+            <div class="form-row" style="margin-bottom:10px">
+              <div class="form-group" style="flex:2">
+                <label>密码</label>
+                <input type="text" id="wifiPwdInput" placeholder="WiFi 密码" maxlength="63" disabled>
+              </div>
+              <div style="display:flex;align-items:flex-end;padding-bottom:0">
+                <button class="btn btn-primary" id="wifiSetPwdBtn" disabled>设置密码</button>
+              </div>
+            </div>
+            <div class="form-row" style="margin-bottom:10px">
+              <div style="display:flex;gap:8px;flex-wrap:wrap">
+                <button class="btn btn-outline" id="wifiStatusBtn" disabled>获取状态</button>
+                <button class="btn btn-send" id="wifiConnectBtn" disabled>连接 WiFi</button>
+                <button class="btn btn-danger" id="wifiDisconnectBtn" disabled>断开 WiFi</button>
+              </div>
+            </div>
+            <div id="wifiStatusInfo" style="font-size:13px;color:var(--text-sec);min-height:20px"></div>
+          </div>
         </div>
 
         <div class="status-bar disconnected" id="statusBar">
@@ -421,8 +451,21 @@
             }
             if (filterOn) {
               if (parsed.cmd === 0x00 && parsed.dataLen > 0) {
+                // CMD 0x00: DATA 为字符串
                 const str = new TextDecoder().decode(new Uint8Array(parsed.data));
                 addMessage('received', str);
+              } else if (parsed.cmd === 0x32 && parsed.dataLen >= 1) {
+                // CMD 0x32 WiFi 状态响应
+                const status = parsed.data[0];
+                const ssid = parsed.dataLen > 1 ? new TextDecoder().decode(new Uint8Array(parsed.data.slice(1))) : 'N/A';
+                const statusStr = status === 1 ? '已连接' : '未连接';
+                document.getElementById('wifiStatusInfo').textContent = `WiFi 状态: ${statusStr} | SSID: ${ssid}`;
+                addMessage('received', `[WiFi] 状态: ${statusStr}, SSID: ${ssid}`);
+              } else if (parsed.cmd === 0xFE) {
+                // 错误响应
+                const errCmd = parsed.dataLen > 0 ? parsed.data[0] : '?';
+                const errCode = parsed.dataLen > 1 ? parsed.data[1] : '?';
+                addMessage('error', `[协议] 错误: CMD=0x${errCmd.toString(16).padStart(2,'0').toUpperCase()} ERR=${errCode}`);
               } else {
                 addMessage('received', parsed.data.map(b => b.toString(16).padStart(2,'0').toUpperCase()).join(' '));
               }
@@ -541,6 +584,7 @@
       document.getElementById('protoBtn00').disabled = false;
       document.getElementById('protoBtn10').disabled = false;
       document.getElementById('protoBtn21').disabled = false;
+      setWifiEnabled(true);
       sendInput.focus();
 
       // 锁定标签
@@ -573,6 +617,7 @@
       document.getElementById('protoBtn00').disabled = true;
       document.getElementById('protoBtn10').disabled = true;
       document.getElementById('protoBtn21').disabled = true;
+      setWifiEnabled(false);
 
       // 解锁标签
       setTabLocked(false);
@@ -657,6 +702,48 @@
 
     // CMD 0x21 REV
     document.getElementById('protoBtn21').onclick = () => sendProtoFrame(0x21, []);
+
+    // ========== WiFi 控件 ==========
+    // 发送字符串数据的辅助函数
+    function sendProtoStr(cmd, str) {
+      if (!connected) { addMessage('error', '请先连接设备'); return; }
+      const bytes = [];
+      for (let i = 0; i < str.length; i++) bytes.push(str.charCodeAt(i));
+      sendProtoFrame(cmd, bytes);
+    }
+
+    // CMD 0x30 设置 SSID
+    document.getElementById('wifiSetSsidBtn').onclick = () => {
+      const ssid = document.getElementById('wifiSsidInput').value;
+      if (!ssid) { addMessage('error', '请输入 SSID'); return; }
+      sendProtoStr(0x30, ssid);
+    };
+
+    // CMD 0x31 设置密码
+    document.getElementById('wifiSetPwdBtn').onclick = () => {
+      const pwd = document.getElementById('wifiPwdInput').value;
+      if (!pwd) { addMessage('error', '请输入密码'); return; }
+      sendProtoStr(0x31, pwd);
+    };
+
+    // CMD 0x32 获取 WiFi 状态
+    document.getElementById('wifiStatusBtn').onclick = () => sendProtoFrame(0x32, []);
+
+    // CMD 0x33 连接 WiFi
+    document.getElementById('wifiConnectBtn').onclick = () => sendProtoFrame(0x33, []);
+
+    // CMD 0x34 断开 WiFi
+    document.getElementById('wifiDisconnectBtn').onclick = () => sendProtoFrame(0x34, []);
+
+    function setWifiEnabled(enabled) {
+      document.getElementById('wifiSsidInput').disabled = !enabled;
+      document.getElementById('wifiPwdInput').disabled = !enabled;
+      document.getElementById('wifiSetSsidBtn').disabled = !enabled;
+      document.getElementById('wifiSetPwdBtn').disabled = !enabled;
+      document.getElementById('wifiStatusBtn').disabled = !enabled;
+      document.getElementById('wifiConnectBtn').disabled = !enabled;
+      document.getElementById('wifiDisconnectBtn').disabled = !enabled;
+    }
 
     document.getElementById('clearMsgBtn').onclick = () => {
       messageCount = 0;
