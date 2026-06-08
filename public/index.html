@@ -306,7 +306,8 @@
         </div>
         <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
           <button class="btn btn-outline" id="protoBtn00" disabled>CMD 0x00</button>
-          <button class="btn btn-outline" id="protoBtn10" disabled>CMD 0x10 全屏刷新</button>
+          <button class="btn btn-outline" id="protoBtn10" disabled>全屏刷新(白)</button>
+          <button class="btn btn-outline" id="protoBtn10black" disabled>全屏刷新(黑)</button>
           <button class="btn btn-outline" id="protoBtn21" disabled>REV 0x21</button>
         </div>
       </div>
@@ -450,24 +451,44 @@
               continue;
             }
             if (filterOn) {
-              if (parsed.cmd === 0x00 && parsed.dataLen > 0) {
-                // CMD 0x00: DATA 为字符串
-                const str = new TextDecoder().decode(new Uint8Array(parsed.data));
-                addMessage('received', str);
+              if (parsed.cmd === 0x00) {
+                // CMD 0x00: 心跳/测试，返回空数据
+                addMessage('received', '[CMD 0x00] OK');
+              } else if (parsed.cmd === 0x10) {
+                // CMD 0x10: 全屏刷新成功
+                addMessage('received', '[CMD 0x10 全屏刷新] OK');
+              } else if (parsed.cmd === 0x21) {
+                // CMD 0x21: 版本信息，DATA 为字符串
+                if (parsed.dataLen > 0) {
+                  const str = new TextDecoder().decode(new Uint8Array(parsed.data));
+                  addMessage('received', `[版本] ${str}`);
+                } else {
+                  addMessage('received', '[CMD 0x21] OK');
+                }
+              } else if (parsed.cmd === 0x30) {
+                addMessage('received', '[设置 SSID] OK');
+              } else if (parsed.cmd === 0x31) {
+                addMessage('received', '[设置密码] OK');
               } else if (parsed.cmd === 0x32 && parsed.dataLen >= 1) {
-                // CMD 0x32 WiFi 状态响应
+                // CMD 0x32 WiFi 状态响应: status[0] + SSID
                 const status = parsed.data[0];
                 const ssid = parsed.dataLen > 1 ? new TextDecoder().decode(new Uint8Array(parsed.data.slice(1))) : 'N/A';
                 const statusStr = status === 1 ? '已连接' : '未连接';
                 document.getElementById('wifiStatusInfo').textContent = `WiFi 状态: ${statusStr} | SSID: ${ssid}`;
                 addMessage('received', `[WiFi] 状态: ${statusStr}, SSID: ${ssid}`);
-              } else if (parsed.cmd === 0xFE) {
-                // 错误响应
-                const errCmd = parsed.dataLen > 0 ? parsed.data[0] : '?';
-                const errCode = parsed.dataLen > 1 ? parsed.data[1] : '?';
-                addMessage('error', `[协议] 错误: CMD=0x${errCmd.toString(16).padStart(2,'0').toUpperCase()} ERR=${errCode}`);
+              } else if (parsed.cmd === 0x33) {
+                addMessage('received', '[连接 WiFi] OK');
+              } else if (parsed.cmd === 0x34) {
+                addMessage('received', '[断开 WiFi] OK');
+              } else if ((parsed.cmd & 0x80) !== 0) {
+                // 错误响应: cmd | 0x80 格式
+                const origCmd = parsed.cmd & 0x7F;
+                const errCode = parsed.dataLen > 0 ? parsed.data[0] : '?';
+                const errNames = { 1: '命令错误', 2: '参数长度错误', 3: 'CRC错误', 4: '执行错误' };
+                const errName = errNames[errCode] || `未知错误(${errCode})`;
+                addMessage('error', `[协议错误] CMD 0x${origCmd.toString(16).padStart(2,'0').toUpperCase()}: ${errName}`);
               } else {
-                addMessage('received', parsed.data.map(b => b.toString(16).padStart(2,'0').toUpperCase()).join(' '));
+                addMessage('received', `[CMD 0x${parsed.cmd.toString(16).padStart(2,'0').toUpperCase()}] ${parsed.data.map(b => b.toString(16).padStart(2,'0').toUpperCase()).join(' ')}`);
               }
             }
           }
@@ -583,6 +604,7 @@
       sendBtn.disabled = false;
       document.getElementById('protoBtn00').disabled = false;
       document.getElementById('protoBtn10').disabled = false;
+      document.getElementById('protoBtn10black').disabled = false;
       document.getElementById('protoBtn21').disabled = false;
       setWifiEnabled(true);
       sendInput.focus();
@@ -616,6 +638,7 @@
       sendBtn.disabled = true;
       document.getElementById('protoBtn00').disabled = true;
       document.getElementById('protoBtn10').disabled = true;
+      document.getElementById('protoBtn10black').disabled = true;
       document.getElementById('protoBtn21').disabled = true;
       setWifiEnabled(false);
 
@@ -697,8 +720,10 @@
     // CMD 0x00 按钮
     document.getElementById('protoBtn00').onclick = () => sendProtoFrame(0x00, []);
 
-    // CMD 0x10 全屏刷新，DATA: [color_id=1]
-    document.getElementById('protoBtn10').onclick = () => sendProtoFrame(0x10, [0x01]);
+    // CMD 0x10 全屏刷新，DATA: [color_id]
+    // 黑:0 白:1 黄:2 红:3
+    document.getElementById('protoBtn10').onclick = () => sendProtoFrame(0x10, [0x01]); // 白
+    document.getElementById('protoBtn10black').onclick = () => sendProtoFrame(0x10, [0x00]); // 黑
 
     // CMD 0x21 REV
     document.getElementById('protoBtn21').onclick = () => sendProtoFrame(0x21, []);
