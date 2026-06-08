@@ -472,13 +472,12 @@
                 addMessage('received', '[设置 SSID] OK');
               } else if (parsed.cmd === 0x31) {
                 addMessage('received', '[设置密码] OK');
-              } else if (parsed.cmd === 0x32 && parsed.dataLen >= 1) {
-                // CMD 0x32 WiFi 状态响应: status[0] + SSID
-                const status = parsed.data[0];
-                const ssid = parsed.dataLen > 1 ? new TextDecoder().decode(new Uint8Array(parsed.data.slice(1))) : 'N/A';
-                const statusStr = status === 1 ? '已连接' : '未连接';
-                document.getElementById('wifiStatusInfo').textContent = `WiFi 状态: ${statusStr} | SSID: ${ssid}`;
-                addMessage('received', `[WiFi] 状态: ${statusStr}, SSID: ${ssid}`);
+              } else if (parsed.cmd === 0x32 && parsed.dataLen > 0) {
+                // CMD 0x32 WiFi 状态响应: DATA 为字符串
+                // 格式: "状态:已连接,SSID:xxx" 或 "状态:连接中,SSID:xxx,密码:xxx" 或 "状态:未连接,SSID:xxx,密码:xxx"
+                const str = new TextDecoder().decode(new Uint8Array(parsed.data));
+                document.getElementById('wifiStatusInfo').textContent = str;
+                addMessage('received', `[WiFi] ${str}`);
               } else if (parsed.cmd === 0x33) {
                 addMessage('received', '[连接 WiFi] OK');
               } else if (parsed.cmd === 0x34) {
