@@ -732,8 +732,7 @@
     // 发送字符串数据的辅助函数
     function sendProtoStr(cmd, str) {
       if (!connected) { addMessage('error', '请先连接设备'); return; }
-      const bytes = [];
-      for (let i = 0; i < str.length; i++) bytes.push(str.charCodeAt(i));
+      const bytes = Array.from(new TextEncoder().encode(str));
       sendProtoFrame(cmd, bytes);
     }
 
