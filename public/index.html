@@ -429,14 +429,17 @@
           if (msg.bytes) rxBuffer.push(...msg.bytes);
           // 从缓冲区中提取所有完整的协议帧
           const filterOn = document.getElementById('protoFilterToggle').checked;
+          let rawBytes = []; // 收集非协议数据
           while (true) {
             // 跳过非帧头字节
             while (rxBuffer.length > 0 && rxBuffer[0] !== PROTO_HEAD) {
-              if (!filterOn) {
-                // 显示全部模式：非协议数据也显示
-                addMessage('received', msg.data);
-              }
-              rxBuffer.shift();
+              rawBytes.push(rxBuffer.shift());
+            }
+            // 显示收集到的非协议数据（仅一次）
+            if (rawBytes.length > 0 && !filterOn) {
+              const rawStr = new TextDecoder().decode(new Uint8Array(rawBytes));
+              addMessage('received', rawStr);
+              rawBytes = [];
             }
             if (rxBuffer.length < 6) break; // 数据不够，等待下次
             const dataLen = (rxBuffer[2] << 8) | rxBuffer[3];
