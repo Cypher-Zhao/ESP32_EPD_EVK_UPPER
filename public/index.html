@@ -309,6 +309,7 @@
           <button class="btn btn-outline" id="protoBtn10" disabled>全屏刷新(白)</button>
           <button class="btn btn-outline" id="protoBtn10black" disabled>全屏刷新(黑)</button>
           <button class="btn btn-outline" id="protoBtn21" disabled>REV 0x21</button>
+          <button class="btn btn-outline" id="protoBtn05" disabled>状态 0x05</button>
         </div>
       </div>
     </div>
@@ -608,6 +609,7 @@
       document.getElementById('protoBtn10').disabled = false;
       document.getElementById('protoBtn10black').disabled = false;
       document.getElementById('protoBtn21').disabled = false;
+      document.getElementById('protoBtn05').disabled = false;
       setWifiEnabled(true);
       sendInput.focus();
 
@@ -642,6 +644,7 @@
       document.getElementById('protoBtn10').disabled = true;
       document.getElementById('protoBtn10black').disabled = true;
       document.getElementById('protoBtn21').disabled = true;
+      document.getElementById('protoBtn05').disabled = true;
       setWifiEnabled(false);
 
       // 解锁标签
@@ -729,6 +732,9 @@
 
     // CMD 0x21 REV
     document.getElementById('protoBtn21').onclick = () => sendProtoFrame(0x21, []);
+
+    // CMD 0x05 状态信息
+    document.getElementById('protoBtn05').onclick = () => sendProtoFrame(0x05, []);
 
     // ========== WiFi 控件 ==========
     // 发送字符串数据的辅助函数
