@@ -310,6 +310,10 @@
           <button class="btn btn-outline" id="protoBtn10black" disabled>全屏刷新(黑)</button>
           <button class="btn btn-outline" id="protoBtn21" disabled>REV 0x21</button>
           <button class="btn btn-outline" id="protoBtn05" disabled>状态 0x05</button>
+          <div style="display:flex;gap:8px;align-items:center">
+            <select id="flashImgSelect" disabled style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;min-height:36px"></select>
+            <button class="btn btn-outline" id="protoBtn11" disabled>显示图片</button>
+          </div>
         </div>
       </div>
     </div>
@@ -367,6 +371,19 @@
             <div id="modDataPreview" style="background:#1e1e1e;color:#ce9178;font-family:monospace;font-size:12px;padding:12px;border-radius:6px;max-height:200px;overflow-y:auto;white-space:pre-wrap;word-break:break-all;line-height:1.6"></div>
             <div id="modDataInfo" style="font-size:12px;color:var(--text-sec);margin-top:6px"></div>
           </div>
+          <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border)">
+            <div style="font-size:14px;font-weight:600;margin-bottom:12px">发送到设备</div>
+            <div class="form-row" style="margin-bottom:10px">
+              <div class="form-group">
+                <label>图片 ID</label>
+                <select id="imgFlashIdSelect" disabled style="padding:10px 12px;border:1px solid var(--border);border-radius:6px;font-size:14px;min-height:40px"></select>
+              </div>
+              <div style="display:flex;gap:8px;align-items:flex-end;padding-bottom:0">
+                <button class="btn btn-send" id="sendImgFlashBtn" disabled>发送图片</button>
+              </div>
+            </div>
+            <div id="sendImgProgress" style="font-size:12px;color:var(--text-sec);min-height:18px"></div>
+          </div>
         </div>
       </div>
     </div>
@@ -392,6 +409,7 @@
     let currentMode = null; // 'tcp' | 'serial'
     let messageCount = 0;
     let rxBuffer = []; // 接收缓冲区，处理粘包
+    let protoPending = null; // 等待协议响应的回调
 
     // ========== WebSocket ==========
     function connectWS() {
@@ -454,35 +472,23 @@
               rxBuffer.unshift(...frameBytes.slice(1));
               continue;
             }
+            // 流控：如果有等待的回调，先执行
+            if (protoPending) {
+              const cb = protoPending;
+              protoPending = null;
+              cb(parsed);
+              continue;
+            }
             if (filterOn) {
-              if (parsed.cmd === 0x00) {
-                // CMD 0x00: 心跳/测试，返回空数据
-                addMessage('received', '[CMD 0x00] OK');
-              } else if (parsed.cmd === 0x10) {
-                // CMD 0x10: 全屏刷新成功
-                addMessage('received', '[CMD 0x10 全屏刷新] OK');
-              } else if (parsed.cmd === 0x21) {
+              if (parsed.cmd === 0x21 && parsed.dataLen > 0) {
                 // CMD 0x21: 版本信息，DATA 为字符串
-                if (parsed.dataLen > 0) {
-                  const str = new TextDecoder().decode(new Uint8Array(parsed.data));
-                  addMessage('received', `[版本] ${str}`);
-                } else {
-                  addMessage('received', '[CMD 0x21] OK');
-                }
-              } else if (parsed.cmd === 0x30) {
-                addMessage('received', '[设置 SSID] OK');
-              } else if (parsed.cmd === 0x31) {
-                addMessage('received', '[设置密码] OK');
+                const str = new TextDecoder().decode(new Uint8Array(parsed.data));
+                addMessage('received', `[版本] ${str}`);
               } else if (parsed.cmd === 0x32 && parsed.dataLen > 0) {
                 // CMD 0x32 WiFi 状态响应: DATA 为字符串
-                // 格式: "状态:已连接,SSID:xxx" 或 "状态:连接中,SSID:xxx,密码:xxx" 或 "状态:未连接,SSID:xxx,密码:xxx"
                 const str = new TextDecoder().decode(new Uint8Array(parsed.data));
                 document.getElementById('wifiStatusInfo').textContent = str;
                 addMessage('received', `[WiFi] ${str}`);
-              } else if (parsed.cmd === 0x33) {
-                addMessage('received', '[连接 WiFi] OK');
-              } else if (parsed.cmd === 0x34) {
-                addMessage('received', '[断开 WiFi] OK');
               } else if ((parsed.cmd & 0x80) !== 0) {
                 // 错误响应: cmd | 0x80 格式
                 const origCmd = parsed.cmd & 0x7F;
@@ -490,7 +496,13 @@
                 const errNames = { 1: '命令错误', 2: '参数长度错误', 3: 'CRC错误', 4: '执行错误' };
                 const errName = errNames[errCode] || `未知错误(${errCode})`;
                 addMessage('error', `[协议错误] CMD 0x${origCmd.toString(16).padStart(2,'0').toUpperCase()}: ${errName}`);
+              } else if (parsed.dataLen === 0) {
+                // 通用规则: 同 CMD 无数据 → OK
+                const cmdNames = { 0x00:'心跳', 0x01:'Flash擦除', 0x02:'Flash写入', 0x10:'全屏刷新', 0x11:'显示图片', 0x21:'版本', 0x30:'设置SSID', 0x31:'设置密码', 0x33:'连接WiFi', 0x34:'断开WiFi', 0x05:'状态信息' };
+                const name = cmdNames[parsed.cmd] || `CMD 0x${parsed.cmd.toString(16).padStart(2,'0').toUpperCase()}`;
+                addMessage('received', `[${name}] OK`);
               } else {
+                // 有数据的其他响应
                 addMessage('received', `[CMD 0x${parsed.cmd.toString(16).padStart(2,'0').toUpperCase()}] ${parsed.data.map(b => b.toString(16).padStart(2,'0').toUpperCase()).join(' ')}`);
               }
             }
@@ -610,6 +622,8 @@
       document.getElementById('protoBtn10black').disabled = false;
       document.getElementById('protoBtn21').disabled = false;
       document.getElementById('protoBtn05').disabled = false;
+      document.getElementById('protoBtn11').disabled = false;
+      document.getElementById('flashImgSelect').disabled = false;
       setWifiEnabled(true);
       sendInput.focus();
 
@@ -645,6 +659,8 @@
       document.getElementById('protoBtn10black').disabled = true;
       document.getElementById('protoBtn21').disabled = true;
       document.getElementById('protoBtn05').disabled = true;
+      document.getElementById('protoBtn11').disabled = true;
+      document.getElementById('flashImgSelect').disabled = true;
       setWifiEnabled(false);
 
       // 解锁标签
@@ -722,6 +738,24 @@
       ws.send(JSON.stringify({ type: 'proto-send', frame }));
     }
 
+    // 发送协议帧并等待响应（返回 Promise）
+    function sendProtoFrameWait(cmd, data, timeout) {
+      return new Promise((resolve, reject) => {
+        const frame = buildProtoFrame(cmd, data || []);
+        const hexStr = frame.map(b => b.toString(16).padStart(2, '0').toUpperCase()).join(' ');
+        addMessage('sent', `[协议] CMD 0x${cmd.toString(16).padStart(2, '0').toUpperCase()}: ${hexStr}`);
+        const timer = setTimeout(() => {
+          protoPending = null;
+          reject(new Error('响应超时'));
+        }, timeout || 5000);
+        protoPending = (parsed) => {
+          clearTimeout(timer);
+          resolve(parsed);
+        };
+        ws.send(JSON.stringify({ type: 'proto-send', frame }));
+      });
+    }
+
     // CMD 0x00 按钮
     document.getElementById('protoBtn00').onclick = () => sendProtoFrame(0x00, []);
 
@@ -735,6 +769,12 @@
 
     // CMD 0x05 状态信息
     document.getElementById('protoBtn05').onclick = () => sendProtoFrame(0x05, []);
+
+    // CMD 0x11 显示图片
+    document.getElementById('protoBtn11').onclick = () => {
+      const imgId = parseInt(document.getElementById('flashImgSelect').value, 10);
+      sendProtoFrame(0x11, [imgId & 0xFF]);
+    };
 
     // ========== WiFi 控件 ==========
     // 发送字符串数据的辅助函数
@@ -926,30 +966,43 @@
 
     function generateModData(imageData, palette) {
       const w = imageData.width, h = imageData.height, data = imageData.data, bytes = [];
+      // FPC朝右：列从右到左扫描 (x = w-1 → 0)，行从上到下 (y = 0 → h-1)
       if (palette === 'bw1') {
-        const rowBytes = Math.ceil(w / 8);
-        for (let y = 0; y < h; y++) for (let xb = 0; xb < rowBytes; xb++) {
+        const colGroups = Math.ceil(h / 8);
+        for (let x = 0; x <w; x++) for (let yg = 0; yg < colGroups; yg++) {
           let byte = 0;
-          for (let bit = 0; bit < 8; bit++) { const x = xb*8+bit; if (x < w) { const i=(y*w+x)*4; if (data[i]*.299+data[i+1]*.587+data[i+2]*.114>128) byte |= (1<<(7-bit)); } }
+          for (let bit = 0; bit < 8; bit++) {
+            const y = yg * 8 + bit;
+            if (y < h) { const i = (y * w + x) * 4; if (data[i] * .299 + data[i + 1] * .587 + data[i + 2] * .114 > 128) byte |= (1 << bit); }
+          }
           bytes.push(byte);
         }
       } else if (palette === 'bwr1') {
-        const rowBytes = Math.ceil(w / 8);
-        for (let y = 0; y < h; y++) for (let xb = 0; xb < rowBytes; xb++) {
+        const colGroups = Math.ceil(h / 8);
+        for (let x = 0; x <w; x++) for (let yg = 0; yg < colGroups; yg++) {
           let byte = 0;
-          for (let bit = 0; bit < 8; bit++) { const x=xb*8+bit; if(x<w){const i=(y*w+x)*4; const r=data[i],g=data[i+1],b=data[i+2]; const isR=r>200&&g<80&&b<80; if(!isR&&r*.299+g*.587+b*.114>128) byte|=(1<<(7-bit));} }
+          for (let bit = 0; bit < 8; bit++) {
+            const y = yg * 8 + bit;
+            if (y < h) { const i = (y * w + x) * 4; const r = data[i], g = data[i + 1], b = data[i + 2]; const isR = r > 200 && g < 80 && b < 80; if (!isR && r * .299 + g * .587 + b * .114 > 128) byte |= (1 << bit); }
+          }
           bytes.push(byte);
         }
-        for (let y = 0; y < h; y++) for (let xb = 0; xb < rowBytes; xb++) {
+        for (let x = 0; x <w; x++) for (let yg = 0; yg < colGroups; yg++) {
           let byte = 0;
-          for (let bit = 0; bit < 8; bit++) { const x=xb*8+bit; if(x<w){const i=(y*w+x)*4; if(data[i]>200&&data[i+1]<80&&data[i+2]<80) byte|=(1<<(7-bit));} }
+          for (let bit = 0; bit < 8; bit++) {
+            const y = yg * 8 + bit;
+            if (y < h) { const i = (y * w + x) * 4; if (data[i] > 200 && data[i + 1] < 80 && data[i + 2] < 80) byte |= (1 << bit); }
+          }
           bytes.push(byte);
         }
       } else if (palette === 'bwyr2') {
-        const rowBytes = Math.ceil(w / 4);
-        for (let y = 0; y < h; y++) for (let xb = 0; xb < rowBytes; xb++) {
+        const colGroups = Math.ceil(h / 4);
+        for (let x = 0; x <w; x++) for (let yg = 0; yg < colGroups; yg++) {
           let byte = 0;
-          for (let px = 0; px < 4; px++) { const x=xb*4+px; if(x<w){const i=(y*w+x)*4; const r=data[i],g=data[i+1],b=data[i+2]; let v=0; if(r>200&&g<80&&b<80)v=3; else if(r>200&&g>200&&b<80)v=2; else if(r*.299+g*.587+b*.114>128)v=1; byte|=(v<<(6-px*2));} }
+          for (let px = 0; px < 4; px++) {
+            const y = yg * 4 + px;
+            if (y < h) { const i = (y * w + x) * 4; const r = data[i], g = data[i + 1], b = data[i + 2]; let v = 0; if (r > 200 && g < 80 && b < 80) v = 3; else if (r > 200 && g > 200 && b < 80) v = 2; else if (r * .299 + g * .587 + b * .114 > 128) v = 1; byte |= (v << (px * 2)); }
+          }
           bytes.push(byte);
         }
       }
@@ -958,6 +1011,95 @@
     }
 
     // ========== 初始化 ==========
+    // 生成图片下拉选项（显示1-16，实际id 0-15）
+    const flashImgSelect = document.getElementById('flashImgSelect');
+    const imgFlashIdSelect = document.getElementById('imgFlashIdSelect');
+    for (let i = 0; i < 16; i++) {
+      const opt1 = document.createElement('option');
+      opt1.value = i; opt1.textContent = `图片 ${i + 1}`;
+      flashImgSelect.appendChild(opt1);
+      const opt2 = document.createElement('option');
+      opt2.value = i; opt2.textContent = `图片 ${i + 1}`;
+      imgFlashIdSelect.appendChild(opt2);
+    }
+
+    // 转换后启用发送按钮
+    let lastModResult = null;
+    const sendImgFlashBtn = document.getElementById('sendImgFlashBtn');
+    const sendImgProgress = document.getElementById('sendImgProgress');
+    const origConvertClick = convertBtn.onclick;
+    convertBtn.addEventListener('click', () => {
+      // 转换完成后启用发送
+      setTimeout(() => {
+        if (canvasDith.width && canvasDith.height) {
+          const w = canvasDith.width, h = canvasDith.height;
+          const tmp = document.createElement('canvas');
+          tmp.width = w; tmp.height = h;
+          tmp.getContext('2d').drawImage(canvasDith, 0, 0);
+          const imgData = tmp.getContext('2d').getImageData(0, 0, w, h);
+          const palette = document.getElementById('paletteSelect').value;
+          lastModResult = generateModData(imgData, palette);
+          sendImgFlashBtn.disabled = false;
+          imgFlashIdSelect.disabled = false;
+          sendImgProgress.textContent = `数据就绪: ${lastModResult.bytes.length} 字节`;
+        }
+      }, 100);
+    });
+
+    // 发送图片到 Flash
+    const FLASH_IMG_SIZE = 2 * 1024 * 1024; // 2MB per image
+    const CHUNK_SIZE = 1024 - 6; // PROTO_MAX_DATA_LEN(4096) - 4字节地址
+
+    sendImgFlashBtn.onclick = async () => {
+      if (!connected || !lastModResult) return;
+      const imgId = parseInt(imgFlashIdSelect.value, 10);
+      const baseAddr = imgId * FLASH_IMG_SIZE;
+      const totalBytes = lastModResult.bytes;
+      const totalChunks = Math.ceil(totalBytes.length / CHUNK_SIZE);
+
+      sendImgFlashBtn.disabled = true;
+      addMessage('system', `[Flash写入] 开始: 图片 ${imgId + 1}, 基址 0x${baseAddr.toString(16).toUpperCase()}, 数据 ${totalBytes.length} 字节, ${totalChunks} 个分包`);
+
+      try {
+        // 擦除图片数据实际大小的 Flash 区域
+        sendImgProgress.textContent = '擦除 Flash...';
+        const eraseLen = totalBytes.length;
+        const eraseData = [
+          (baseAddr >> 24) & 0xFF, (baseAddr >> 16) & 0xFF, (baseAddr >> 8) & 0xFF, baseAddr & 0xFF,
+          (eraseLen >> 24) & 0xFF, (eraseLen >> 16) & 0xFF, (eraseLen >> 8) & 0xFF, eraseLen & 0xFF
+        ];
+        const eraseResp = await sendProtoFrameWait(0x01, eraseData, 30000);
+        if ((eraseResp.cmd & 0x80) !== 0) {
+          throw new Error('擦除失败');
+        }
+        addMessage('received', '[Flash擦除] OK');
+        sendImgProgress.textContent = '擦除完成，开始写入...';
+
+        // 分块写入
+        for (let offset = 0; offset < totalBytes.length; offset += CHUNK_SIZE) {
+          const chunk = totalBytes.slice(offset, offset + CHUNK_SIZE);
+          const addr = baseAddr + offset;
+          const addrBytes = [(addr >> 24) & 0xFF, (addr >> 16) & 0xFF, (addr >> 8) & 0xFF, addr & 0xFF];
+          const writeData = [...addrBytes, ...chunk];
+
+          const chunkIdx = Math.floor(offset / CHUNK_SIZE) + 1;
+          sendImgProgress.textContent = `写入中... ${chunkIdx}/${totalChunks} (${Math.round(offset / totalBytes.length * 100)}%)`;
+
+          const writeResp = await sendProtoFrameWait(0x02, writeData, 10000);
+          if ((writeResp.cmd & 0x80) !== 0) {
+            throw new Error(`写入失败: 包 ${chunkIdx}/${totalChunks}`);
+          }
+        }
+
+        sendImgProgress.textContent = `完成! 共写入 ${totalBytes.length} 字节`;
+        addMessage('system', `[Flash写入] 完成: 图片 ${imgId + 1}, ${totalBytes.length} 字节`);
+      } catch (err) {
+        sendImgProgress.textContent = `失败: ${err.message}`;
+        addMessage('error', `[Flash写入] ${err.message}`);
+      }
+      sendImgFlashBtn.disabled = false;
+    };
+
     connectWS();
     setTimeout(() => { if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'serial-list' })); }, 1000);
 
