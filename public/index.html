@@ -310,10 +310,6 @@
           <button class="btn btn-outline" id="protoBtn10black" disabled>全屏刷新(黑)</button>
           <button class="btn btn-outline" id="protoBtn21" disabled>REV 0x21</button>
           <button class="btn btn-outline" id="protoBtn05" disabled>状态 0x05</button>
-          <div style="display:flex;gap:8px;align-items:center">
-            <select id="flashImgSelect" disabled style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;min-height:36px"></select>
-            <button class="btn btn-outline" id="protoBtn11" disabled>显示图片</button>
-          </div>
         </div>
       </div>
     </div>
@@ -380,6 +376,7 @@
               </div>
               <div style="display:flex;gap:8px;align-items:flex-end;padding-bottom:0">
                 <button class="btn btn-send" id="sendImgFlashBtn" disabled>发送图片</button>
+                <button class="btn btn-outline" id="showImgBtn" disabled>显示图片</button>
               </div>
             </div>
             <div id="sendImgProgress" style="font-size:12px;color:var(--text-sec);min-height:18px"></div>
@@ -622,8 +619,7 @@
       document.getElementById('protoBtn10black').disabled = false;
       document.getElementById('protoBtn21').disabled = false;
       document.getElementById('protoBtn05').disabled = false;
-      document.getElementById('protoBtn11').disabled = false;
-      document.getElementById('flashImgSelect').disabled = false;
+
       setWifiEnabled(true);
       sendInput.focus();
 
@@ -659,8 +655,7 @@
       document.getElementById('protoBtn10black').disabled = true;
       document.getElementById('protoBtn21').disabled = true;
       document.getElementById('protoBtn05').disabled = true;
-      document.getElementById('protoBtn11').disabled = true;
-      document.getElementById('flashImgSelect').disabled = true;
+
       setWifiEnabled(false);
 
       // 解锁标签
@@ -770,9 +765,9 @@
     // CMD 0x05 状态信息
     document.getElementById('protoBtn05').onclick = () => sendProtoFrame(0x05, []);
 
-    // CMD 0x11 显示图片
-    document.getElementById('protoBtn11').onclick = () => {
-      const imgId = parseInt(document.getElementById('flashImgSelect').value, 10);
+    // 显示图片按钮（移到图片卡片中）
+    document.getElementById('showImgBtn').onclick = () => {
+      const imgId = parseInt(document.getElementById('imgFlashIdSelect').value, 10);
       sendProtoFrame(0x11, [imgId & 0xFF]);
     };
 
@@ -1012,15 +1007,11 @@
 
     // ========== 初始化 ==========
     // 生成图片下拉选项（显示1-16，实际id 0-15）
-    const flashImgSelect = document.getElementById('flashImgSelect');
     const imgFlashIdSelect = document.getElementById('imgFlashIdSelect');
     for (let i = 0; i < 16; i++) {
-      const opt1 = document.createElement('option');
-      opt1.value = i; opt1.textContent = `图片 ${i + 1}`;
-      flashImgSelect.appendChild(opt1);
-      const opt2 = document.createElement('option');
-      opt2.value = i; opt2.textContent = `图片 ${i + 1}`;
-      imgFlashIdSelect.appendChild(opt2);
+      const opt = document.createElement('option');
+      opt.value = i; opt.textContent = `图片 ${i + 1}`;
+      imgFlashIdSelect.appendChild(opt);
     }
 
     // 转换后启用发送按钮
@@ -1040,6 +1031,7 @@
           const palette = document.getElementById('paletteSelect').value;
           lastModResult = generateModData(imgData, palette);
           sendImgFlashBtn.disabled = false;
+          document.getElementById('showImgBtn').disabled = false;
           imgFlashIdSelect.disabled = false;
           sendImgProgress.textContent = `数据就绪: ${lastModResult.bytes.length} 字节`;
         }
