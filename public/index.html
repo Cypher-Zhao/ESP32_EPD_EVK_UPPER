@@ -331,11 +331,11 @@
           <button class="btn btn-send" id="sendBtn" disabled>发送</button>
         </div>
         <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
-          <button class="btn btn-outline" id="protoBtn00" disabled>CMD 0x00</button>
+          <button class="btn btn-outline" id="protoBtn00" disabled>心跳</button>
           <button class="btn btn-outline" id="protoBtn10" disabled>全屏刷新(白)</button>
           <button class="btn btn-outline" id="protoBtn10black" disabled>全屏刷新(黑)</button>
-          <button class="btn btn-outline" id="protoBtn21" disabled>REV 0x21</button>
-          <button class="btn btn-outline" id="protoBtn05" disabled>状态 0x05</button>
+          <button class="btn btn-outline" id="protoBtn21" disabled>获取版本</button>
+          <button class="btn btn-outline" id="protoBtn05" disabled>获取状态</button>
         </div>
       </div>
     </div>
@@ -433,6 +433,80 @@
     let messageCount = 0;
     let rxBuffer = []; // 接收缓冲区，处理粘包
     let protoPending = null; // 等待协议响应的回调
+
+    // ========== 协议命令配置 ==========
+    // 统一管理所有协议命令，方便编辑和新增
+    const PROTO_COMMANDS = {
+      // 基础命令
+      HEARTBEAT:        { cmd: 0x00, name: '心跳',        desc: '心跳检测',         data: [] },
+      STATUS:           { cmd: 0x05, name: '状态信息',    desc: '获取设备状态',     data: [] },
+      VERSION:          { cmd: 0x21, name: '版本',        desc: '获取固件版本',     data: [] },
+      
+      // 屏幕控制命令
+      FULL_REFRESH:     { cmd: 0x10, name: '全屏刷新',    desc: '全屏刷新指定颜色', data: null }, // data 由参数决定
+      SHOW_IMAGE:       { cmd: 0x11, name: '显示图片',    desc: '显示指定ID的图片', data: null }, // data 由参数决定
+      
+      // Flash 操作命令
+      FLASH_ERASE:      { cmd: 0x01, name: 'Flash擦除',   desc: '擦除Flash区域',    data: null }, // data 由参数决定
+      FLASH_WRITE:      { cmd: 0x02, name: 'Flash写入',   desc: '写入Flash数据',    data: null }, // data 由参数决定
+      
+      // WiFi 命令
+      WIFI_SET_SSID:    { cmd: 0x30, name: '设置SSID',    desc: '设置WiFi名称',     data: null }, // data 为字符串
+      WIFI_SET_PWD:     { cmd: 0x31, name: '设置密码',    desc: '设置WiFi密码',     data: null }, // data 为字符串
+      WIFI_GET_STATUS:  { cmd: 0x32, name: 'WiFi状态',    desc: '获取WiFi状态',     data: [] },
+      WIFI_CONNECT:     { cmd: 0x33, name: '连接WiFi',    desc: '连接WiFi网络',     data: [] },
+      WIFI_DISCONNECT:  { cmd: 0x34, name: '断开WiFi',    desc: '断开WiFi连接',     data: [] },
+    };
+
+    // 颜色定义（用于全屏刷新）
+    const COLORS = {
+      BLACK: 0x00,
+      WHITE: 0x01,
+      YELLOW: 0x02,
+      RED: 0x03
+    };
+
+    // 错误代码定义
+    const ERROR_CODES = {
+      1: '命令错误',
+      2: '参数长度错误',
+      3: 'CRC错误',
+      4: '执行错误'
+    };
+
+    // ========== 协议发送工具函数 ==========
+    
+    /**
+     * 发送协议命令
+     * @param {Object} command - 命令配置对象
+     * @param {Array|number[]} [data] - 命令数据（可选，覆盖配置中的默认数据）
+     */
+    async function sendCommand(command, data = null) {
+      const cmdData = data !== null ? data : (command.data || []);
+      await sendProtoFrame(command.cmd, cmdData);
+    }
+
+    /**
+     * 发送带字符串参数的命令
+     * @param {Object} command - 命令配置对象
+     * @param {string} str - 字符串参数
+     */
+    async function sendCommandStr(command, str) {
+      const bytes = Array.from(new TextEncoder().encode(str));
+      await sendProtoFrame(command.cmd, bytes);
+    }
+
+    /**
+     * 发送命令并等待响应
+     * @param {Object} command - 命令配置对象
+     * @param {Array|number[]} [data] - 命令数据
+     * @param {number} [timeout] - 超时时间
+     * @returns {Promise} 响应数据
+     */
+    async function sendCommandWait(command, data = null, timeout = 5000) {
+      const cmdData = data !== null ? data : (command.data || []);
+      return await sendProtoFrameWait(command.cmd, cmdData, timeout);
+    }
 
     // ========== WebSocket ==========
     function connectWS() {
@@ -802,12 +876,15 @@
           continue;
         }
         if (filterOn) {
-          if (parsed.cmd === 0x21 && parsed.dataLen > 0) {
-            // CMD 0x21: 版本信息，DATA 为字符串
+          // 获取命令名称
+          const cmdName = getCommandName(parsed.cmd);
+          
+          if (parsed.cmd === PROTO_COMMANDS.VERSION.cmd && parsed.dataLen > 0) {
+            // 版本信息响应
             const str = new TextDecoder().decode(new Uint8Array(parsed.data));
             addMessage('received', `[版本] ${str}`);
-          } else if (parsed.cmd === 0x32 && parsed.dataLen > 0) {
-            // CMD 0x32 WiFi 状态响应: DATA 为字符串
+          } else if (parsed.cmd === PROTO_COMMANDS.WIFI_GET_STATUS.cmd && parsed.dataLen > 0) {
+            // WiFi 状态响应
             const str = new TextDecoder().decode(new Uint8Array(parsed.data));
             document.getElementById('wifiStatusInfo').textContent = str;
             addMessage('received', `[WiFi] ${str}`);
@@ -815,20 +892,31 @@
             // 错误响应: cmd | 0x80 格式
             const origCmd = parsed.cmd & 0x7F;
             const errCode = parsed.dataLen > 0 ? parsed.data[0] : '?';
-            const errNames = { 1: '命令错误', 2: '参数长度错误', 3: 'CRC错误', 4: '执行错误' };
-            const errName = errNames[errCode] || `未知错误(${errCode})`;
-            addMessage('error', `[协议错误] CMD 0x${origCmd.toString(16).padStart(2,'0').toUpperCase()}: ${errName}`);
+            const errName = ERROR_CODES[errCode] || `未知错误(${errCode})`;
+            addMessage('error', `[协议错误] ${getCommandName(origCmd)}: ${errName}`);
           } else if (parsed.dataLen === 0) {
             // 通用规则: 同 CMD 无数据 → OK
-            const cmdNames = { 0x00:'心跳', 0x01:'Flash擦除', 0x02:'Flash写入', 0x10:'全屏刷新', 0x11:'显示图片', 0x21:'版本', 0x30:'设置SSID', 0x31:'设置密码', 0x33:'连接WiFi', 0x34:'断开WiFi', 0x05:'状态信息' };
-            const name = cmdNames[parsed.cmd] || `CMD 0x${parsed.cmd.toString(16).padStart(2,'0').toUpperCase()}`;
-            addMessage('received', `[${name}] OK`);
+            addMessage('received', `[${cmdName}] OK`);
           } else {
             // 有数据的其他响应
-            addMessage('received', `[CMD 0x${parsed.cmd.toString(16).padStart(2,'0').toUpperCase()}] ${parsed.data.map(b => b.toString(16).padStart(2,'0').toUpperCase()).join(' ')}`);
+            addMessage('received', `[${cmdName}] ${parsed.data.map(b => b.toString(16).padStart(2,'0').toUpperCase()).join(' ')}`);
           }
         }
       }
+    }
+
+    /**
+     * 根据命令码获取命令名称
+     * @param {number} cmd - 命令码
+     * @returns {string} 命令名称
+     */
+    function getCommandName(cmd) {
+      for (const key in PROTO_COMMANDS) {
+        if (PROTO_COMMANDS[key].cmd === cmd) {
+          return PROTO_COMMANDS[key].name;
+        }
+      }
+      return `CMD 0x${cmd.toString(16).padStart(2, '0').toUpperCase()}`;
     }
 
     // ========== 状态管理 ==========
@@ -1032,56 +1120,41 @@
       });
     }
 
-    // CMD 0x00 按钮
-    document.getElementById('protoBtn00').onclick = () => sendProtoFrame(0x00, []);
-
-    // CMD 0x10 全屏刷新，DATA: [color_id]
-    // 黑:0 白:1 黄:2 红:3
-    document.getElementById('protoBtn10').onclick = () => sendProtoFrame(0x10, [0x01]); // 白
-    document.getElementById('protoBtn10black').onclick = () => sendProtoFrame(0x10, [0x00]); // 黑
-
-    // CMD 0x21 REV
-    document.getElementById('protoBtn21').onclick = () => sendProtoFrame(0x21, []);
-
-    // CMD 0x05 状态信息
-    document.getElementById('protoBtn05').onclick = () => sendProtoFrame(0x05, []);
-
-    // 显示图片按钮（移到图片卡片中）
+    // ========== 命令按钮绑定 ==========
+    // 使用统一的命令配置，方便管理
+    
+    // 基础命令按钮
+    document.getElementById('protoBtn00').onclick = () => sendCommand(PROTO_COMMANDS.HEARTBEAT);
+    document.getElementById('protoBtn21').onclick = () => sendCommand(PROTO_COMMANDS.VERSION);
+    document.getElementById('protoBtn05').onclick = () => sendCommand(PROTO_COMMANDS.STATUS);
+    
+    // 屏幕控制按钮
+    document.getElementById('protoBtn10').onclick = () => sendCommand(PROTO_COMMANDS.FULL_REFRESH, [COLORS.WHITE]);
+    document.getElementById('protoBtn10black').onclick = () => sendCommand(PROTO_COMMANDS.FULL_REFRESH, [COLORS.BLACK]);
+    
+    // 显示图片按钮
     document.getElementById('showImgBtn').onclick = () => {
       const imgId = parseInt(document.getElementById('imgFlashIdSelect').value, 10);
-      sendProtoFrame(0x11, [imgId & 0xFF]);
+      sendCommand(PROTO_COMMANDS.SHOW_IMAGE, [imgId & 0xFF]);
     };
 
     // ========== WiFi 控件 ==========
-    // 发送字符串数据的辅助函数
-    async function sendProtoStr(cmd, str) {
-      if (!connected) { addMessage('error', '请先连接设备'); return; }
-      const bytes = Array.from(new TextEncoder().encode(str));
-      await sendProtoFrame(cmd, bytes);
-    }
-
-    // CMD 0x30 设置 SSID
+    // WiFi 命令按钮
     document.getElementById('wifiSetSsidBtn').onclick = () => {
       const ssid = document.getElementById('wifiSsidInput').value;
       if (!ssid) { addMessage('error', '请输入 SSID'); return; }
-      sendProtoStr(0x30, ssid);
+      sendCommandStr(PROTO_COMMANDS.WIFI_SET_SSID, ssid);
     };
 
-    // CMD 0x31 设置密码
     document.getElementById('wifiSetPwdBtn').onclick = () => {
       const pwd = document.getElementById('wifiPwdInput').value;
       if (!pwd) { addMessage('error', '请输入密码'); return; }
-      sendProtoStr(0x31, pwd);
+      sendCommandStr(PROTO_COMMANDS.WIFI_SET_PWD, pwd);
     };
 
-    // CMD 0x32 获取 WiFi 状态
-    document.getElementById('wifiStatusBtn').onclick = () => sendProtoFrame(0x32, []);
-
-    // CMD 0x33 连接 WiFi
-    document.getElementById('wifiConnectBtn').onclick = () => sendProtoFrame(0x33, []);
-
-    // CMD 0x34 断开 WiFi
-    document.getElementById('wifiDisconnectBtn').onclick = () => sendProtoFrame(0x34, []);
+    document.getElementById('wifiStatusBtn').onclick = () => sendCommand(PROTO_COMMANDS.WIFI_GET_STATUS);
+    document.getElementById('wifiConnectBtn').onclick = () => sendCommand(PROTO_COMMANDS.WIFI_CONNECT);
+    document.getElementById('wifiDisconnectBtn').onclick = () => sendCommand(PROTO_COMMANDS.WIFI_DISCONNECT);
 
     function setWifiEnabled(enabled) {
       document.getElementById('wifiSsidInput').disabled = !enabled;
@@ -1341,7 +1414,7 @@
           (baseAddr >> 24) & 0xFF, (baseAddr >> 16) & 0xFF, (baseAddr >> 8) & 0xFF, baseAddr & 0xFF,
           (eraseLen >> 24) & 0xFF, (eraseLen >> 16) & 0xFF, (eraseLen >> 8) & 0xFF, eraseLen & 0xFF
         ];
-        const eraseResp = await sendProtoFrameWait(0x01, eraseData, 30000);
+        const eraseResp = await sendCommandWait(PROTO_COMMANDS.FLASH_ERASE, eraseData, 30000);
         if ((eraseResp.cmd & 0x80) !== 0) {
           throw new Error('擦除失败');
         }
@@ -1358,7 +1431,7 @@
           const chunkIdx = Math.floor(offset / CHUNK_SIZE) + 1;
           sendImgProgress.textContent = `写入中... ${chunkIdx}/${totalChunks} (${Math.round(offset / totalBytes.length * 100)}%)`;
 
-          const writeResp = await sendProtoFrameWait(0x02, writeData, 10000);
+          const writeResp = await sendCommandWait(PROTO_COMMANDS.FLASH_WRITE, writeData, 10000);
           if ((writeResp.cmd & 0x80) !== 0) {
             throw new Error(`写入失败: 包 ${chunkIdx}/${totalChunks}`);
           }
@@ -1374,7 +1447,6 @@
     };
 
     connectWS();
-    // WebUSB 模式不需要自动获取串口列表
 
     // ========== 卡片折叠 ==========
     document.querySelectorAll('.card-header').forEach(header => {
