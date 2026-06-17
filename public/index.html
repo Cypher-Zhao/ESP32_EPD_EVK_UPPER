@@ -131,6 +131,29 @@
     .serial-row .form-group { flex: 1; justify-content: flex-end; }
     .serial-row .btn { align-self: flex-end; }
 
+    /* Web Serial 警告 */
+    #serial-not-supported {
+      display: none;
+      padding: 12px;
+      background: #fff4ce;
+      color: #8a6d3b;
+      border-radius: 6px;
+      margin-bottom: 12px;
+      font-size: 13px;
+    }
+
+    /* 串口状态 */
+    #serialStatus {
+      padding: 10px;
+      background: #f5f5f5;
+      border-radius: 6px;
+      font-size: 13px;
+      color: var(--text-sec);
+      min-height: 40px;
+      display: flex;
+      align-items: center;
+    }
+
     /* 控制台 */
     .console-messages {
       background: #1e1e1e; border-radius: 6px;
@@ -215,15 +238,18 @@
 
         <!-- Serial -->
         <div class="tab-content" id="tab-serial">
+          <div id="serial-not-supported" style="display:none;padding:12px;background:#fff4ce;color:#8a6d3b;border-radius:6px;margin-bottom:12px;font-size:13px">
+            ⚠️ 当前浏览器不支持 Web Serial API，请使用 Chrome/Edge 89+ 浏览器访问
+          </div>
           <div class="form-row" style="margin-bottom:12px">
             <div class="form-group" style="flex:1">
               <label>串口</label>
-              <select id="serialPortSelect">
-                <option value="">-- 请选择串口 --</option>
-              </select>
+              <div id="serialStatus" style="padding:10px;background:#f5f5f5;border-radius:6px;font-size:13px;color:var(--text-sec)">
+                未选择串口
+              </div>
             </div>
             <div style="display:flex;gap:8px;align-items:flex-end;padding-bottom:0">
-              <button class="btn btn-primary" id="refreshSerialBtn">刷新</button>
+              <button class="btn btn-primary" id="selectDeviceBtn">选择串口</button>
             </div>
           </div>
           <div class="form-row">
@@ -403,7 +429,7 @@
 
     let ws = null;
     let connected = false;
-    let currentMode = null; // 'tcp' | 'serial'
+    let currentMode = null; // 'tcp' | 'serial-web'
     let messageCount = 0;
     let rxBuffer = []; // 接收缓冲区，处理粘包
     let protoPending = null; // 等待协议响应的回调
@@ -443,67 +469,8 @@
         case 'received': {
           // 将收到的字节追加到接收缓冲区
           if (msg.bytes) rxBuffer.push(...msg.bytes);
-          // 从缓冲区中提取所有完整的协议帧
-          const filterOn = document.getElementById('protoFilterToggle').checked;
-          let rawBytes = []; // 收集非协议数据
-          while (true) {
-            // 跳过非帧头字节
-            while (rxBuffer.length > 0 && rxBuffer[0] !== PROTO_HEAD) {
-              rawBytes.push(rxBuffer.shift());
-            }
-            // 显示收集到的非协议数据（仅一次）
-            if (rawBytes.length > 0 && !filterOn) {
-              const rawStr = new TextDecoder().decode(new Uint8Array(rawBytes));
-              addMessage('received', rawStr);
-              rawBytes = [];
-            }
-            if (rxBuffer.length < 6) break; // 数据不够，等待下次
-            const dataLen = (rxBuffer[2] << 8) | rxBuffer[3];
-            const frameLen = 4 + dataLen + 2;
-            if (rxBuffer.length < frameLen) break; // 帧不完整，等待下次
-            // 提取一帧
-            const frameBytes = rxBuffer.splice(0, frameLen);
-            const parsed = parseProtoFrame(frameBytes);
-            if (!parsed) {
-              // CRC 校验失败，跳过这个帧头，继续扫描
-              rxBuffer.unshift(...frameBytes.slice(1));
-              continue;
-            }
-            // 流控：如果有等待的回调，先执行
-            if (protoPending) {
-              const cb = protoPending;
-              protoPending = null;
-              cb(parsed);
-              continue;
-            }
-            if (filterOn) {
-              if (parsed.cmd === 0x21 && parsed.dataLen > 0) {
-                // CMD 0x21: 版本信息，DATA 为字符串
-                const str = new TextDecoder().decode(new Uint8Array(parsed.data));
-                addMessage('received', `[版本] ${str}`);
-              } else if (parsed.cmd === 0x32 && parsed.dataLen > 0) {
-                // CMD 0x32 WiFi 状态响应: DATA 为字符串
-                const str = new TextDecoder().decode(new Uint8Array(parsed.data));
-                document.getElementById('wifiStatusInfo').textContent = str;
-                addMessage('received', `[WiFi] ${str}`);
-              } else if ((parsed.cmd & 0x80) !== 0) {
-                // 错误响应: cmd | 0x80 格式
-                const origCmd = parsed.cmd & 0x7F;
-                const errCode = parsed.dataLen > 0 ? parsed.data[0] : '?';
-                const errNames = { 1: '命令错误', 2: '参数长度错误', 3: 'CRC错误', 4: '执行错误' };
-                const errName = errNames[errCode] || `未知错误(${errCode})`;
-                addMessage('error', `[协议错误] CMD 0x${origCmd.toString(16).padStart(2,'0').toUpperCase()}: ${errName}`);
-              } else if (parsed.dataLen === 0) {
-                // 通用规则: 同 CMD 无数据 → OK
-                const cmdNames = { 0x00:'心跳', 0x01:'Flash擦除', 0x02:'Flash写入', 0x10:'全屏刷新', 0x11:'显示图片', 0x21:'版本', 0x30:'设置SSID', 0x31:'设置密码', 0x33:'连接WiFi', 0x34:'断开WiFi', 0x05:'状态信息' };
-                const name = cmdNames[parsed.cmd] || `CMD 0x${parsed.cmd.toString(16).padStart(2,'0').toUpperCase()}`;
-                addMessage('received', `[${name}] OK`);
-              } else {
-                // 有数据的其他响应
-                addMessage('received', `[CMD 0x${parsed.cmd.toString(16).padStart(2,'0').toUpperCase()}] ${parsed.data.map(b => b.toString(16).padStart(2,'0').toUpperCase()).join(' ')}`);
-              }
-            }
-          }
+          // 处理接收数据
+          processReceivedData();
           break;
         }
         case 'error':
@@ -571,32 +538,282 @@
     ipInput.addEventListener('keydown', e => { if (e.key === 'Enter') portInput.focus(); });
     portInput.addEventListener('keydown', e => { if (e.key === 'Enter') document.getElementById('tcpConnectBtn').click(); });
 
-    // ========== Serial ==========
-    document.getElementById('refreshSerialBtn').onclick = () => {
-      if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'serial-list' }));
-    };
-    document.getElementById('serialConnectBtn').onclick = () => {
-      const portPath = document.getElementById('serialPortSelect').value;
-      const baud = document.getElementById('baudRateSelect').value;
-      if (!portPath) { addMessage('error', '请选择串口'); return; }
-      if (!ws || ws.readyState !== 1) return;
-      setStatus('connecting', `正在连接串口 ${portPath} ...`);
+    // ========== Web Serial API 检测 ==========
+    const serialSupported = 'serial' in navigator;
+    if (!serialSupported) {
+      document.getElementById('serial-not-supported').style.display = 'block';
+      document.getElementById('selectDeviceBtn').disabled = true;
       document.getElementById('serialConnectBtn').disabled = true;
-      ws.send(JSON.stringify({ type: 'serial-connect', path: portPath, baudRate: baud }));
+    }
+
+    // ========== Web Serial 串口变量 ==========
+    let serialPort = null;
+    let serialReader = null;
+    let serialOpen = false;
+    let serialClose = true; // 用户主动关闭标记
+
+    // ========== Serial (Web Serial API) ==========
+    document.getElementById('selectDeviceBtn').onclick = async () => {
+      try {
+        if (!serialSupported) {
+          addMessage('error', '当前浏览器不支持 Web Serial API，请使用 Chrome/Edge 89+');
+          return;
+        }
+
+        // 请求串口权限
+        const port = await navigator.serial.requestPort();
+        
+        // 关闭之前的连接
+        if (serialOpen) {
+          await closeSerialPort();
+        }
+        
+        serialPort = port;
+        serialClose = false;
+        
+        // 更新状态显示
+        document.getElementById('serialStatus').textContent = '串口已选择，点击「连接」打开';
+        document.getElementById('serialStatus').style.color = 'var(--primary)';
+        
+        addMessage('system', '串口已选择');
+        
+        // 自动连接
+        await openSerialPort();
+        
+      } catch (err) {
+        if (err.name === 'NotFoundError') {
+          addMessage('system', '用户取消选择串口');
+        } else {
+          addMessage('error', `选择串口失败: ${err.message}`);
+        }
+      }
     };
-    document.getElementById('serialDisconnectBtn').onclick = () => {
-      if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'serial-disconnect' }));
+
+    // 打开串口
+    async function openSerialPort() {
+      if (!serialPort) {
+        addMessage('error', '请先选择串口');
+        return;
+      }
+
+      const baud = parseInt(document.getElementById('baudRateSelect').value, 10);
+
+      try {
+        setStatus('connecting', '正在打开串口...');
+        document.getElementById('serialConnectBtn').disabled = true;
+
+        // 打开串口
+        await serialPort.open({
+          baudRate: baud,
+          dataBits: 8,
+          stopBits: 1,
+          parity: 'none',
+          bufferSize: 1024,
+          flowControl: 'none'
+        });
+
+        serialOpen = true;
+        serialClose = false;
+
+        // 更新状态
+        document.getElementById('serialStatus').textContent = `已连接 @ ${baud} bps`;
+        document.getElementById('serialStatus').style.color = 'var(--success)';
+
+        // 标记为串口模式
+        currentMode = 'serial-web';
+        connected = true;
+        onConnected('serial-web', `已连接串口 @ ${baud} bps`, `串口 ${baud}`);
+
+        // 开始读取数据
+        readSerialData();
+
+      } catch (err) {
+        addMessage('error', `打开串口失败: ${err.message}`);
+        setStatus('disconnected', `打开串口失败: ${err.message}`);
+        document.getElementById('serialConnectBtn').disabled = false;
+      }
+    }
+
+    // 关闭串口
+    async function closeSerialPort() {
+      serialOpen = false;
+      serialClose = true;
+
+      try {
+        // 取消读取
+        if (serialReader) {
+          await serialReader.cancel();
+          serialReader.releaseLock();
+          serialReader = null;
+        }
+
+        // 关闭端口
+        if (serialPort) {
+          await serialPort.close();
+        }
+      } catch (err) {
+        console.warn('关闭串口错误:', err);
+      }
+    }
+
+    // 读取串口数据
+    async function readSerialData() {
+      while (serialOpen && serialPort && serialPort.readable) {
+        try {
+          serialReader = serialPort.readable.getReader();
+          
+          while (true) {
+            const { value, done } = await serialReader.read();
+            if (done) {
+              break;
+            }
+            if (value && value.length > 0) {
+              // 将收到的字节追加到接收缓冲区
+              rxBuffer.push(...Array.from(value));
+              // 处理接收数据
+              processReceivedData();
+            }
+          }
+        } catch (err) {
+          if (serialOpen) {
+            console.error('串口读取错误:', err);
+          }
+        } finally {
+          if (serialReader) {
+            serialReader.releaseLock();
+            serialReader = null;
+          }
+        }
+      }
+
+      // 串口关闭后清理
+      if (serialPort) {
+        try {
+          await serialPort.close();
+        } catch (e) {}
+      }
+    }
+
+    // 写串口数据
+    async function writeSerialData(data) {
+      if (!serialPort || !serialPort.writable) {
+        throw new Error('串口未打开');
+      }
+
+      const writer = serialPort.writable.getWriter();
+      try {
+        await writer.write(data);
+      } finally {
+        writer.releaseLock();
+      }
+    }
+
+    document.getElementById('serialConnectBtn').onclick = async () => {
+      if (serialOpen) {
+        // 断开连接
+        await closeSerialPort();
+        onDisconnected('已断开串口连接');
+        document.getElementById('serialStatus').textContent = '已断开';
+        document.getElementById('serialStatus').style.color = 'var(--text-sec)';
+      } else if (serialPort) {
+        // 重新连接
+        await openSerialPort();
+      } else {
+        addMessage('error', '请先选择串口');
+      }
     };
+
+    document.getElementById('serialDisconnectBtn').onclick = async () => {
+      await closeSerialPort();
+      onDisconnected('已断开串口连接');
+      document.getElementById('serialStatus').textContent = '已断开';
+      document.getElementById('serialStatus').style.color = 'var(--text-sec)';
+    };
+
     function populateSerialPorts(ports) {
-      const sel = document.getElementById('serialPortSelect');
-      sel.innerHTML = '<option value="">-- 请选择串口 --</option>';
-      ports.forEach(p => {
-        const opt = document.createElement('option');
-        opt.value = p.path;
-        opt.textContent = `${p.path}${p.manufacturer ? ' (' + p.manufacturer + ')' : ''}`;
-        sel.appendChild(opt);
+      // Web Serial API 不需要预填充列表
+    }
+
+    // 监听串口连接/断开事件
+    if (serialSupported) {
+      navigator.serial.addEventListener('connect', (e) => {
+        addMessage('system', '检测到新串口设备');
       });
-      if (ports.length === 0) sel.innerHTML = '<option value="">未检测到串口设备</option>';
+
+      navigator.serial.addEventListener('disconnect', (e) => {
+        if (serialPort === e.target) {
+          addMessage('system', '串口设备已断开');
+          onDisconnected('串口设备已断开');
+          document.getElementById('serialStatus').textContent = '设备已断开';
+          document.getElementById('serialStatus').style.color = 'var(--danger)';
+          serialPort = null;
+          serialOpen = false;
+        }
+      });
+    }
+
+    // 处理接收到的数据
+    function processReceivedData() {
+      const filterOn = document.getElementById('protoFilterToggle').checked;
+      let rawBytes = []; // 收集非协议数据
+      while (true) {
+        // 跳过非帧头字节
+        while (rxBuffer.length > 0 && rxBuffer[0] !== PROTO_HEAD) {
+          rawBytes.push(rxBuffer.shift());
+        }
+        // 显示收集到的非协议数据（仅一次）
+        if (rawBytes.length > 0 && !filterOn) {
+          const rawStr = new TextDecoder().decode(new Uint8Array(rawBytes));
+          addMessage('received', rawStr);
+          rawBytes = [];
+        }
+        if (rxBuffer.length < 6) break; // 数据不够，等待下次
+        const dataLen = (rxBuffer[2] << 8) | rxBuffer[3];
+        const frameLen = 4 + dataLen + 2;
+        if (rxBuffer.length < frameLen) break; // 帧不完整，等待下次
+        // 提取一帧
+        const frameBytes = rxBuffer.splice(0, frameLen);
+        const parsed = parseProtoFrame(frameBytes);
+        if (!parsed) {
+          // CRC 校验失败，跳过这个帧头，继续扫描
+          rxBuffer.unshift(...frameBytes.slice(1));
+          continue;
+        }
+        // 流控：如果有等待的回调，先执行
+        if (protoPending) {
+          const cb = protoPending;
+          protoPending = null;
+          cb(parsed);
+          continue;
+        }
+        if (filterOn) {
+          if (parsed.cmd === 0x21 && parsed.dataLen > 0) {
+            // CMD 0x21: 版本信息，DATA 为字符串
+            const str = new TextDecoder().decode(new Uint8Array(parsed.data));
+            addMessage('received', `[版本] ${str}`);
+          } else if (parsed.cmd === 0x32 && parsed.dataLen > 0) {
+            // CMD 0x32 WiFi 状态响应: DATA 为字符串
+            const str = new TextDecoder().decode(new Uint8Array(parsed.data));
+            document.getElementById('wifiStatusInfo').textContent = str;
+            addMessage('received', `[WiFi] ${str}`);
+          } else if ((parsed.cmd & 0x80) !== 0) {
+            // 错误响应: cmd | 0x80 格式
+            const origCmd = parsed.cmd & 0x7F;
+            const errCode = parsed.dataLen > 0 ? parsed.data[0] : '?';
+            const errNames = { 1: '命令错误', 2: '参数长度错误', 3: 'CRC错误', 4: '执行错误' };
+            const errName = errNames[errCode] || `未知错误(${errCode})`;
+            addMessage('error', `[协议错误] CMD 0x${origCmd.toString(16).padStart(2,'0').toUpperCase()}: ${errName}`);
+          } else if (parsed.dataLen === 0) {
+            // 通用规则: 同 CMD 无数据 → OK
+            const cmdNames = { 0x00:'心跳', 0x01:'Flash擦除', 0x02:'Flash写入', 0x10:'全屏刷新', 0x11:'显示图片', 0x21:'版本', 0x30:'设置SSID', 0x31:'设置密码', 0x33:'连接WiFi', 0x34:'断开WiFi', 0x05:'状态信息' };
+            const name = cmdNames[parsed.cmd] || `CMD 0x${parsed.cmd.toString(16).padStart(2,'0').toUpperCase()}`;
+            addMessage('received', `[${name}] OK`);
+          } else {
+            // 有数据的其他响应
+            addMessage('received', `[CMD 0x${parsed.cmd.toString(16).padStart(2,'0').toUpperCase()}] ${parsed.data.map(b => b.toString(16).padStart(2,'0').toUpperCase()).join(' ')}`);
+          }
+        }
+      }
     }
 
     // ========== 状态管理 ==========
@@ -630,12 +847,14 @@
         document.getElementById('tcpConnectBtn').disabled = true;
         document.getElementById('tcpDisconnectBtn').disabled = false;
         ipInput.disabled = true; portInput.disabled = true;
-      } else {
-        document.getElementById('serialConnectBtn').disabled = true;
+      } else if (mode === 'serial-web') {
+        document.getElementById('serialConnectBtn').disabled = false;
+        document.getElementById('serialConnectBtn').textContent = '断开';
+        document.getElementById('serialConnectBtn').classList.remove('btn-primary');
+        document.getElementById('serialConnectBtn').classList.add('btn-danger');
         document.getElementById('serialDisconnectBtn').disabled = false;
-        document.getElementById('serialPortSelect').disabled = true;
         document.getElementById('baudRateSelect').disabled = true;
-        document.getElementById('refreshSerialBtn').disabled = true;
+        document.getElementById('selectDeviceBtn').disabled = true;
       }
 
       addMessage('system', statusMsg);
@@ -665,24 +884,41 @@
       document.getElementById('tcpConnectBtn').disabled = false;
       document.getElementById('tcpDisconnectBtn').disabled = true;
       ipInput.disabled = false; portInput.disabled = false;
+      
+      // 恢复串口按钮状态
       document.getElementById('serialConnectBtn').disabled = false;
+      document.getElementById('serialConnectBtn').textContent = '连接';
+      document.getElementById('serialConnectBtn').classList.remove('btn-danger');
+      document.getElementById('serialConnectBtn').classList.add('btn-primary');
       document.getElementById('serialDisconnectBtn').disabled = true;
-      document.getElementById('serialPortSelect').disabled = false;
       document.getElementById('baudRateSelect').disabled = false;
-      document.getElementById('refreshSerialBtn').disabled = false;
+      document.getElementById('selectDeviceBtn').disabled = false;
 
       if (reason) addMessage('system', reason);
     }
 
     // ========== 控制台: 发送与消息 ==========
-    function handleSend() {
+    async function handleSend() {
       const data = sendInput.value;
       if (!data) return;
       if (!connected) { addMessage('error', '请先连接设备'); return; }
-      if (ws && ws.readyState === 1) {
-        ws.send(JSON.stringify({ type: 'send', data }));
-        sendInput.value = '';
-        sendInput.focus();
+      
+      try {
+        if (currentMode === 'serial-web' && serialPort && serialOpen) {
+          // Web Serial 模式：直接发送
+          const encoder = new TextEncoder();
+          await writeSerialData(encoder.encode(data));
+          addMessage('sent', data);
+          sendInput.value = '';
+          sendInput.focus();
+        } else if (ws && ws.readyState === 1) {
+          // WebSocket 模式：通过服务器发送
+          ws.send(JSON.stringify({ type: 'send', data }));
+          sendInput.value = '';
+          sendInput.focus();
+        }
+      } catch (err) {
+        addMessage('error', `发送失败: ${err.message}`);
       }
     }
     sendBtn.onclick = handleSend;
@@ -725,17 +961,28 @@
       return body;
     }
 
-    function sendProtoFrame(cmd, data) {
+    async function sendProtoFrame(cmd, data) {
       if (!connected) { addMessage('error', '请先连接设备'); return; }
       const frame = buildProtoFrame(cmd, data || []);
       const hexStr = frame.map(b => b.toString(16).padStart(2, '0').toUpperCase()).join(' ');
       addMessage('sent', `[协议] CMD 0x${cmd.toString(16).padStart(2, '0').toUpperCase()}: ${hexStr}`);
-      ws.send(JSON.stringify({ type: 'proto-send', frame }));
+      
+      try {
+        if (currentMode === 'serial-web' && serialPort && serialOpen) {
+          // Web Serial 模式：直接发送字节数组
+          await writeSerialData(new Uint8Array(frame));
+        } else if (ws && ws.readyState === 1) {
+          // WebSocket 模式：通过服务器发送
+          ws.send(JSON.stringify({ type: 'proto-send', frame }));
+        }
+      } catch (err) {
+        addMessage('error', `协议发送失败: ${err.message}`);
+      }
     }
 
     // 发送协议帧并等待响应（返回 Promise）
-    function sendProtoFrameWait(cmd, data, timeout) {
-      return new Promise((resolve, reject) => {
+    async function sendProtoFrameWait(cmd, data, timeout) {
+      return new Promise(async (resolve, reject) => {
         const frame = buildProtoFrame(cmd, data || []);
         const hexStr = frame.map(b => b.toString(16).padStart(2, '0').toUpperCase()).join(' ');
         addMessage('sent', `[协议] CMD 0x${cmd.toString(16).padStart(2, '0').toUpperCase()}: ${hexStr}`);
@@ -747,7 +994,24 @@
           clearTimeout(timer);
           resolve(parsed);
         };
-        ws.send(JSON.stringify({ type: 'proto-send', frame }));
+        
+        try {
+          if (currentMode === 'serial-web' && serialPort && serialOpen) {
+            // Web Serial 模式：直接发送字节数组
+            await writeSerialData(new Uint8Array(frame));
+          } else if (ws && ws.readyState === 1) {
+            // WebSocket 模式：通过服务器发送
+            ws.send(JSON.stringify({ type: 'proto-send', frame }));
+          } else {
+            clearTimeout(timer);
+            protoPending = null;
+            reject(new Error('未连接到设备'));
+          }
+        } catch (err) {
+          clearTimeout(timer);
+          protoPending = null;
+          reject(err);
+        }
       });
     }
 
@@ -773,10 +1037,10 @@
 
     // ========== WiFi 控件 ==========
     // 发送字符串数据的辅助函数
-    function sendProtoStr(cmd, str) {
+    async function sendProtoStr(cmd, str) {
       if (!connected) { addMessage('error', '请先连接设备'); return; }
       const bytes = Array.from(new TextEncoder().encode(str));
-      sendProtoFrame(cmd, bytes);
+      await sendProtoFrame(cmd, bytes);
     }
 
     // CMD 0x30 设置 SSID
@@ -1093,7 +1357,7 @@
     };
 
     connectWS();
-    setTimeout(() => { if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'serial-list' })); }, 1000);
+    // WebUSB 模式不需要自动获取串口列表
 
     // ========== 卡片折叠 ==========
     document.querySelectorAll('.card-header').forEach(header => {
