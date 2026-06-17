@@ -612,6 +612,14 @@
           flowControl: 'none'
         });
 
+        // 仅开启DTR 禁用 RTS 信号，避免 ESP32 重启
+        // 未来下位机可能会修复
+        try {
+          await serialPort.setSignals({ dataTerminalReady: true, requestToSend: false });
+        } catch (e) {
+          // 某些设备可能不支持
+        }
+
         serialOpen = true;
         serialClose = false;
 
@@ -642,14 +650,26 @@
       try {
         // 取消读取
         if (serialReader) {
-          await serialReader.cancel();
-          serialReader.releaseLock();
+          try {
+            await serialReader.cancel();
+          } catch (e) {
+            // cancel 可能已经释放了 reader
+          }
+          try {
+            serialReader.releaseLock();
+          } catch (e) {
+            // reader 可能已经释放
+          }
           serialReader = null;
         }
 
         // 关闭端口
         if (serialPort) {
-          await serialPort.close();
+          try {
+            await serialPort.close();
+          } catch (e) {
+            // 端口可能已经关闭
+          }
         }
       } catch (err) {
         console.warn('关闭串口错误:', err);
@@ -679,18 +699,13 @@
             console.error('串口读取错误:', err);
           }
         } finally {
-          if (serialReader) {
-            serialReader.releaseLock();
-            serialReader = null;
-          }
+          try {
+            if (serialReader) {
+              serialReader.releaseLock();
+            }
+          } catch (e) {}
+          serialReader = null;
         }
-      }
-
-      // 串口关闭后清理
-      if (serialPort) {
-        try {
-          await serialPort.close();
-        } catch (e) {}
       }
     }
 
@@ -852,7 +867,8 @@
         document.getElementById('serialConnectBtn').textContent = '断开';
         document.getElementById('serialConnectBtn').classList.remove('btn-primary');
         document.getElementById('serialConnectBtn').classList.add('btn-danger');
-        document.getElementById('serialDisconnectBtn').disabled = false;
+        document.getElementById('serialDisconnectBtn').disabled = true;
+        document.getElementById('serialDisconnectBtn').style.display = 'none';
         document.getElementById('baudRateSelect').disabled = true;
         document.getElementById('selectDeviceBtn').disabled = true;
       }
@@ -891,6 +907,7 @@
       document.getElementById('serialConnectBtn').classList.remove('btn-danger');
       document.getElementById('serialConnectBtn').classList.add('btn-primary');
       document.getElementById('serialDisconnectBtn').disabled = true;
+      document.getElementById('serialDisconnectBtn').style.display = '';
       document.getElementById('baudRateSelect').disabled = false;
       document.getElementById('selectDeviceBtn').disabled = false;
 
