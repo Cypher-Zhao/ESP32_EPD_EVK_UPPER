@@ -256,9 +256,13 @@
               <input type="text" id="wsPathInput" placeholder="/ws" value="/ws" maxlength="64">
               <span class="hint"></span>
             </div>
-            <div style="display:flex;gap:6px;padding-bottom:15px">
-              <button class="btn btn-primary" id="wsConnectBtn">连接</button>
-              <button class="btn btn-danger" id="wsDisconnectBtn" disabled>断开</button>
+            <div class="form-group">
+              <label>&nbsp;</label>
+              <div style="display:flex;gap:6px">
+                <button class="btn btn-primary" id="wsConnectBtn" style="min-height:40px">连接</button>
+                <button class="btn btn-danger" id="wsDisconnectBtn" disabled style="min-height:40px">断开</button>
+              </div>
+              <span class="hint"></span>
             </div>
           </div>
         </div>
