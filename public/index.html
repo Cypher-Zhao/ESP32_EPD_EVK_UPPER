@@ -461,10 +461,11 @@
         </div>
         <div style="padding-bottom:0;display:flex;gap:8px">
           <button class="btn btn-primary" id="convertBtn" disabled>转换</button>
+          <button class="btn btn-outline" id="compareBtn" disabled style="display:none">对比</button>
           <button class="btn btn-outline" id="viewFullBtn" disabled style="display:none">查看大图</button>
         </div>
         <div id="imagePreview" style="display:none;margin-top:16px">
-          <div style="display:flex;gap:16px;flex-wrap:wrap">
+          <div id="sideBySideView" style="display:flex;gap:16px;flex-wrap:wrap">
             <div style="flex:1;min-width:200px">
               <div style="font-size:13px;font-weight:500;color:var(--text-sec);margin-bottom:8px">原图</div>
               <canvas id="canvasOriginal" style="width:100%;max-height:400px;object-fit:contain;border:1px solid var(--border);border-radius:6px;background:#fff"></canvas>
@@ -474,6 +475,17 @@
               <img id="ditheredPreview" style="width:100%;max-height:400px;object-fit:contain;border:1px solid var(--border);border-radius:6px;background:#fff;display:none">
               <canvas id="canvasDithered" style="display:none"></canvas>
             </div>
+          </div>
+          <div id="compareView" style="display:none;position:relative;overflow:hidden;border:1px solid var(--border);border-radius:6px;cursor:ew-resize;user-select:none;-webkit-user-select:none">
+            <img id="compareAfter" style="width:100%;display:block;pointer-events:none">
+            <canvas id="compareBefore" style="position:absolute;top:0;left:0;width:100%;height:auto;pointer-events:none"></canvas>
+            <div id="compareSlider" style="position:absolute;top:0;left:50%;width:3px;height:100%;background:#fff;box-shadow:0 0 6px rgba(0,0,0,.6);transform:translateX(-50%);pointer-events:none;z-index:2">
+              <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:40px;height:40px;background:rgba(255,255,255,.95);border-radius:50%;box-shadow:0 2px 8px rgba(0,0,0,.3);display:flex;align-items:center;justify-content:center;pointer-events:none">
+                <span style="font-size:14px;color:#555;font-weight:bold">◀▶</span>
+              </div>
+            </div>
+            <div style="position:absolute;top:8px;left:12px;background:rgba(0,0,0,.55);color:#fff;font-size:11px;padding:3px 10px;border-radius:4px;pointer-events:none;z-index:3;font-weight:500">原图</div>
+            <div style="position:absolute;top:8px;right:12px;background:rgba(0,0,0,.55);color:#fff;font-size:11px;padding:3px 10px;border-radius:4px;pointer-events:none;z-index:3;font-weight:500">抖动后</div>
           </div>
           <div style="margin-top:16px">
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
@@ -1441,9 +1453,13 @@
       // 转成图片 URL 显示，浏览器默认平滑缩放
       ditheredPreview.src = canvasDith.toDataURL('image/png');
       ditheredPreview.style.display = 'block';
-      // 启用查看大图按钮
+      // 启用对比和查看大图按钮
+      compareBtn.style.display = '';
+      compareBtn.disabled = false;
       viewFullBtn.style.display = '';
       viewFullBtn.disabled = false;
+      // 如果当前处于对比模式，刷新对比视图
+      if (compareActive) initCompare();
       const finalData = dithCtx.getImageData(0, 0, w, h);
       const modResult = generateModData(finalData, palette);
       modDataPreview.textContent = modResult.hex;
@@ -1466,6 +1482,58 @@
       win.document.write(`<!DOCTYPE html><html><head><title>抖动预览 ${w}×${h}</title><style>*{margin:0;padding:0;box-sizing:border-box}body{background:#1a1a1a;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}img{display:block}</style></head><body><img src="${dataUrl}"></body></html>`);
       win.document.close();
     });
+
+    // ===== 对比滑块功能 =====
+    const compareBtn = document.getElementById('compareBtn');
+    const compareView = document.getElementById('compareView');
+    const compareBefore = document.getElementById('compareBefore');
+    const compareAfter = document.getElementById('compareAfter');
+    const compareSlider = document.getElementById('compareSlider');
+    const sideBySideView = document.getElementById('sideBySideView');
+    let compareActive = false;
+    let compareDragging = false;
+
+    compareBtn.addEventListener('click', () => {
+      compareActive = !compareActive;
+      compareBtn.textContent = compareActive ? '退出对比' : '对比';
+      compareBtn.classList.toggle('btn-primary', compareActive);
+      compareBtn.classList.toggle('btn-outline', !compareActive);
+      compareView.style.display = compareActive ? 'block' : 'none';
+      sideBySideView.style.display = compareActive ? 'none' : 'flex';
+      if (compareActive) initCompare();
+    });
+
+    function initCompare() {
+      const w = canvasDith.width, h = canvasDith.height;
+      if (!w || !h) return;
+      // 设置容器宽高比，防止图片加载前容器塌陷
+      compareView.style.aspectRatio = w + ' / ' + h;
+      compareBefore.width = w; compareBefore.height = h;
+      const ctx = compareBefore.getContext('2d');
+      ctx.drawImage(loadedImage, 0, 0, w, h);
+      compareAfter.src = canvasDith.toDataURL('image/png');
+      setComparePosition(50);
+    }
+
+    function setComparePosition(percent) {
+      percent = Math.max(0, Math.min(100, percent));
+      compareSlider.style.left = percent + '%';
+      compareBefore.style.clipPath = `inset(0 ${(100 - percent).toFixed(2)}% 0 0)`;
+    }
+
+    function updateCompare(e) {
+      const rect = compareView.getBoundingClientRect();
+      const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+      const percent = ((clientX - rect.left) / rect.width) * 100;
+      setComparePosition(percent);
+    }
+
+    compareView.addEventListener('mousedown', e => { compareDragging = true; updateCompare(e); e.preventDefault(); });
+    document.addEventListener('mousemove', e => { if (compareDragging) { updateCompare(e); e.preventDefault(); } });
+    document.addEventListener('mouseup', () => { compareDragging = false; });
+    compareView.addEventListener('touchstart', e => { compareDragging = true; updateCompare(e); e.preventDefault(); }, { passive: false });
+    document.addEventListener('touchmove', e => { if (compareDragging) updateCompare(e); }, { passive: true });
+    document.addEventListener('touchend', () => { compareDragging = false; });
 
     function getPaletteName(p) { return { bw1:'黑白 1bit', bwr1:'黑白红 1bit', bwyr2:'黑白黄红 2bit', bwrgby4:'黑白黄红蓝绿 3bit' }[p] || p; }
 
