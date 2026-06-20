@@ -317,7 +317,7 @@
     </div>
 
     <!-- 控制台 (内嵌) -->
-    <div class="card" id="consoleCard">
+    <div class="card collapsed" id="consoleCard">
       <div class="card-header"><span>📟</span> 控制台 <span class="chevron">▼</span></div>
       <div class="card-body">
         <div class="console-toolbar">
@@ -347,7 +347,7 @@
     </div>
 
     <!-- 图片抖动与取模 -->
-    <div class="card" id="imageCard">
+    <div class="card collapsed" id="imageCard">
       <div class="card-header"><span>🖼️</span> 图片抖动与取模 <span class="chevron">▼</span></div>
       <div class="card-body">
         <div class="form-row" style="margin-bottom:12px">
@@ -988,6 +988,11 @@
       document.getElementById('protoBtn05').disabled = false;
       document.getElementById('showImgBtn').disabled = false;
       if (lastModResult) sendImgFlashBtn.disabled = false;
+
+      // 展开图片抖动卡片并滚动过去
+      const imageCard = document.getElementById('imageCard');
+      imageCard.classList.remove('collapsed');
+      imageCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
       setWifiEnabled(true);
       sendInput.focus();
