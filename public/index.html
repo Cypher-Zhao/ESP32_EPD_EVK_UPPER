@@ -107,7 +107,7 @@
     .form-group input.invalid {
       border-color: var(--danger); box-shadow: 0 0 0 2px rgba(209,52,56,.15);
     }
-    .form-group .hint { font-size: 12px; color: var(--danger); min-height: 16px; }
+    .form-group .hint { font-size: 12px; color: var(--danger); min-height: 0; }
 
     /* 按钮 */
     .btn {
@@ -238,7 +238,7 @@
 
         <!-- WebSocket -->
         <div class="tab-content active" id="tab-ws">
-          <div style="padding:2px 0 12px;font-size:13px;color:var(--text-sec)">直接通过 WebSocket 连接 ESP32（ESP32 需开启 WebSocket Server）</div>
+          <div style="padding:8px 0 12px;font-size:13px;color:var(--text-sec)">直接通过 WebSocket 连接 ESP32（ESP32 需开启 WebSocket Server）</div>
           <div class="form-row" style="gap:2px">
             <div class="form-group" style="flex:2;min-width:0">
               <label>IP 地址</label>
