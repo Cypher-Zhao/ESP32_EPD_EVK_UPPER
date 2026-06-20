@@ -213,6 +213,7 @@
       <div class="card-body">
         <div class="tabs">
           <div class="tab active" data-tab="tcp">TCP 连接</div>
+          <div class="tab" data-tab="ws">WebSocket</div>
           <div class="tab" data-tab="serial">串口连接</div>
         </div>
 
@@ -232,6 +233,33 @@
             <div style="display:flex;gap:8px;padding-bottom:22px">
               <button class="btn btn-primary" id="tcpConnectBtn">连接</button>
               <button class="btn btn-danger" id="tcpDisconnectBtn" disabled>断开</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- WebSocket -->
+        <div class="tab-content" id="tab-ws">
+          <div style="padding:8px 0 12px;font-size:13px;color:var(--text-sec)">直接通过 WebSocket 连接 ESP32（ESP32 需开启 WebSocket Server）</div>
+          <div class="form-row">
+            <div class="form-group" style="flex:2">
+              <label>IP 地址</label>
+              <input type="text" id="wsIpInput" placeholder="例如: 192.168.10.33" maxlength="45">
+              <span class="hint" id="wsIpHint"></span>
+            </div>
+            <div class="form-group" style="flex:1">
+              <label>端口</label>
+              <input type="text" id="wsPortInput" placeholder="80" value="80" maxlength="5">
+              <span class="hint" id="wsPortHint"></span>
+            </div>
+            <div class="form-group" style="flex:1">
+              <label>路径</label>
+              <input type="text" id="wsPathInput" placeholder="/" value="/" maxlength="64">
+            </div>
+          </div>
+          <div class="form-row" style="margin-top:8px">
+            <div style="display:flex;gap:8px">
+              <button class="btn btn-primary" id="wsConnectBtn">连接</button>
+              <button class="btn btn-danger" id="wsDisconnectBtn" disabled>断开</button>
             </div>
           </div>
         </div>
@@ -508,13 +536,24 @@
       return await sendProtoFrameWait(command.cmd, cmdData, timeout);
     }
 
-    // ========== WebSocket ==========
+    // ========== WebSocket 代理（TCP 模式用）==========
     function connectWS() {
+      // GitHub Pages 等静态托管时无服务端，跳过代理连接
+      if (location.protocol === 'file:') return;
       const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
       ws = new WebSocket(`${proto}//${location.host}`);
-      ws.onopen = () => console.log('WS connected');
+      ws.onopen = () => console.log('WS proxy connected');
       ws.onmessage = (e) => handleMsg(JSON.parse(e.data));
-      ws.onclose = () => setTimeout(connectWS, 3000);
+      ws.onclose = () => {
+        ws = null;
+        // 仅在 TCP 模式下自动重连
+        if (currentMode === 'tcp') {
+          setTimeout(connectWS, 3000);
+        } else if (!currentMode) {
+          setTimeout(connectWS, 5000);
+        }
+      };
+      ws.onerror = () => {}; // 静默处理，GitHub Pages 上无代理是正常的
     }
 
     function handleMsg(msg) {
@@ -541,7 +580,8 @@
         case 'error':
           addMessage('error', msg.message);
           if (msg.message.includes('连接') || msg.message.includes('超时') || msg.message.includes('拒绝') || msg.message.includes('串口') || msg.message.includes('未连接')) {
-            onDisconnected(msg.message);
+            // 仅在 TCP 模式下响应服务端错误消息
+            if (currentMode === 'tcp') onDisconnected(msg.message);
           }
           break;
       }
@@ -592,7 +632,10 @@
       ipHint.textContent = ie; portHint.textContent = pe;
       ipInput.classList.toggle('invalid', !!ie); portInput.classList.toggle('invalid', !!pe);
       if (ie || pe) return;
-      if (!ws || ws.readyState !== 1) return;
+      if (!ws || ws.readyState !== 1) {
+        addMessage('error', 'TCP 代理服务未连接（请确保 server.js 正在运行，或使用 WebSocket 模式直连）');
+        return;
+      }
       setStatus('connecting', `正在连接 ${ip}:${port} ...`);
       document.getElementById('tcpConnectBtn').disabled = true;
       ws.send(JSON.stringify({ type: 'tcp-connect', host: ip, port }));
@@ -602,6 +645,88 @@
     };
     ipInput.addEventListener('keydown', e => { if (e.key === 'Enter') portInput.focus(); });
     portInput.addEventListener('keydown', e => { if (e.key === 'Enter') document.getElementById('tcpConnectBtn').click(); });
+
+    // ========== WebSocket Server 直连 ==========
+    let wsDevice = null; // 直连 ESP32 的 WebSocket
+
+    const wsIpInput = document.getElementById('wsIpInput');
+    const wsPortInput = document.getElementById('wsPortInput');
+    const wsIpHint = document.getElementById('wsIpHint');
+    const wsPortHint = document.getElementById('wsPortHint');
+
+    wsIpInput.addEventListener('input', () => { const e = validateIP(wsIpInput.value.trim()); wsIpHint.textContent = e; wsIpInput.classList.toggle('invalid', !!e); });
+    wsPortInput.addEventListener('input', () => { const e = validatePort(wsPortInput.value.trim()); wsPortHint.textContent = e; wsPortInput.classList.toggle('invalid', !!e); });
+    wsIpInput.addEventListener('keydown', e => { if (e.key === 'Enter') wsPortInput.focus(); });
+    wsPortInput.addEventListener('keydown', e => { if (e.key === 'Enter') document.getElementById('wsConnectBtn').click(); });
+
+    document.getElementById('wsConnectBtn').onclick = () => {
+      const ip = wsIpInput.value.trim(), port = wsPortInput.value.trim();
+      const ie = validateIP(ip), pe = validatePort(port);
+      wsIpHint.textContent = ie; wsPortHint.textContent = pe;
+      wsIpInput.classList.toggle('invalid', !!ie); wsPortInput.classList.toggle('invalid', !!pe);
+      if (ie || pe) return;
+
+      const path = (document.getElementById('wsPathInput').value.trim() || '/');
+      const wsUrl = `ws://${ip}:${port}${path}`;
+      setStatus('connecting', `正在连接 ${wsUrl} ...`);
+      document.getElementById('wsConnectBtn').disabled = true;
+
+      try {
+        wsDevice = new WebSocket(wsUrl);
+        wsDevice.binaryType = 'arraybuffer';
+
+        wsDevice.onopen = () => {
+          console.log('[WS直连] 已连接');
+          onConnected('ws', `已连接到 ${wsUrl}`, `WS ${ip}:${port}${path}`);
+        };
+
+        wsDevice.onmessage = (e) => {
+          if (e.data instanceof ArrayBuffer) {
+            // 二进制帧 → 字节数组 → 协议解析
+            rxBuffer.push(...Array.from(new Uint8Array(e.data)));
+            processReceivedData();
+          } else if (typeof e.data === 'string') {
+            // 文本帧 → 尝试 JSON 解析
+            try {
+              handleMsg(JSON.parse(e.data));
+            } catch {
+              addMessage('received', e.data);
+            }
+          }
+        };
+
+        wsDevice.onerror = (e) => {
+          console.error('[WS直连] 错误:', e);
+          // onclose 会紧随触发，由 onclose 处理断开逻辑
+        };
+
+        wsDevice.onclose = (e) => {
+          console.log('[WS直连] 已断开', e.code, e.reason);
+          wsDevice = null;
+          if (currentMode === 'ws') {
+            // 给出详细诊断信息
+            let hint = '';
+            if (location.protocol === 'https:') {
+              hint = '（HTTPS 页面不允许 ws:// 连接，请用 http:// 访问本页面，或 ESP32 改用 wss://）';
+            } else if (e.code === 1006) {
+              hint = '（连接被关闭：ESP32 可能未开启 WebSocket Server，或端口/IP 不正确）';
+            }
+            onDisconnected(`WebSocket 连接已关闭 ${hint}`.trim());
+          }
+        };
+      } catch (err) {
+        addMessage('error', `连接失败: ${err.message}`);
+        setStatus('disconnected', `连接失败: ${err.message}`);
+        document.getElementById('wsConnectBtn').disabled = false;
+      }
+    };
+
+    document.getElementById('wsDisconnectBtn').onclick = () => {
+      if (wsDevice) {
+        wsDevice.close();
+        wsDevice = null;
+      }
+    };
 
     // ========== Web Serial API 检测 ==========
     const serialSupported = 'serial' in navigator;
@@ -937,6 +1062,11 @@
         document.getElementById('tcpConnectBtn').disabled = true;
         document.getElementById('tcpDisconnectBtn').disabled = false;
         ipInput.disabled = true; portInput.disabled = true;
+      } else if (mode === 'ws') {
+        document.getElementById('wsConnectBtn').disabled = true;
+        document.getElementById('wsDisconnectBtn').disabled = false;
+        wsIpInput.disabled = true; wsPortInput.disabled = true;
+        document.getElementById('wsPathInput').disabled = true;
       } else if (mode === 'serial-web') {
         document.getElementById('serialConnectBtn').disabled = false;
         document.getElementById('serialConnectBtn').textContent = '断开';
@@ -975,7 +1105,12 @@
       document.getElementById('tcpConnectBtn').disabled = false;
       document.getElementById('tcpDisconnectBtn').disabled = true;
       ipInput.disabled = false; portInput.disabled = false;
-      
+
+      document.getElementById('wsConnectBtn').disabled = false;
+      document.getElementById('wsDisconnectBtn').disabled = true;
+      wsIpInput.disabled = false; wsPortInput.disabled = false;
+      document.getElementById('wsPathInput').disabled = false;
+
       // 恢复串口按钮状态
       document.getElementById('serialConnectBtn').disabled = false;
       document.getElementById('serialConnectBtn').textContent = '连接';
@@ -1003,8 +1138,15 @@
           addMessage('sent', data);
           sendInput.value = '';
           sendInput.focus();
+        } else if (currentMode === 'ws' && wsDevice && wsDevice.readyState === 1) {
+          // WebSocket 直连模式：直接发送到 ESP32
+          const encoder = new TextEncoder();
+          wsDevice.send(encoder.encode(data));
+          addMessage('sent', data);
+          sendInput.value = '';
+          sendInput.focus();
         } else if (ws && ws.readyState === 1) {
-          // WebSocket 模式：通过服务器发送
+          // TCP 模式：通过服务器代理发送
           ws.send(JSON.stringify({ type: 'send', data }));
           sendInput.value = '';
           sendInput.focus();
@@ -1063,8 +1205,11 @@
         if (currentMode === 'serial-web' && serialPort && serialOpen) {
           // Web Serial 模式：直接发送字节数组
           await writeSerialData(new Uint8Array(frame));
+        } else if (currentMode === 'ws' && wsDevice && wsDevice.readyState === 1) {
+          // WebSocket 直连模式：直接发送二进制帧到 ESP32
+          wsDevice.send(new Uint8Array(frame));
         } else if (ws && ws.readyState === 1) {
-          // WebSocket 模式：通过服务器发送
+          // TCP 模式：通过服务器代理发送
           ws.send(JSON.stringify({ type: 'proto-send', frame }));
         }
       } catch (err) {
@@ -1091,8 +1236,11 @@
           if (currentMode === 'serial-web' && serialPort && serialOpen) {
             // Web Serial 模式：直接发送字节数组
             await writeSerialData(new Uint8Array(frame));
+          } else if (currentMode === 'ws' && wsDevice && wsDevice.readyState === 1) {
+            // WebSocket 直连模式：直接发送二进制帧到 ESP32
+            wsDevice.send(new Uint8Array(frame));
           } else if (ws && ws.readyState === 1) {
-            // WebSocket 模式：通过服务器发送
+            // TCP 模式：通过服务器代理发送
             ws.send(JSON.stringify({ type: 'proto-send', frame }));
           } else {
             clearTimeout(timer);
