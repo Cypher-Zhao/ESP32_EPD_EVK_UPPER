@@ -558,6 +558,46 @@
     wsIpInput.addEventListener('keydown', e => { if (e.key === 'Enter') wsPortInput.focus(); });
     wsPortInput.addEventListener('keydown', e => { if (e.key === 'Enter') document.getElementById('wsConnectBtn').click(); });
 
+    // ========== URL 参数自动填入 ==========
+    // 支持格式: ?ws=192.168.1.100:8080/ws  或  ?ip=192.168.1.100&port=8080&path=/ws
+    (function applyUrlParams() {
+      const params = new URLSearchParams(window.location.search);
+      let ip, port, path;
+
+      if (params.has('ws')) {
+        // ?ws=IP:PORT/PATH  或  ?ws=IP:PORT  或  ?ws=IP
+        const raw = params.get('ws').trim();
+        const m = raw.match(/^([^:]+):(\d+)(\/.*)?$/);
+        if (m) {
+          ip = m[1]; port = m[2]; path = m[3] || undefined;
+        } else if (/^[\w.\-]+$/.test(raw)) {
+          ip = raw; // 只有 IP，端口用默认值
+        }
+      } else {
+        ip = params.get('ip');
+        port = params.get('port');
+        path = params.get('path');
+      }
+
+      // 填入并验证，不合法则跳过
+      if (ip && !validateIP(ip.trim())) {
+        wsIpInput.value = ip.trim();
+        wsIpInput.dispatchEvent(new Event('input'));
+      }
+      if (port && !validatePort(port.trim())) {
+        wsPortInput.value = port.trim();
+        wsPortInput.dispatchEvent(new Event('input'));
+      }
+      if (path) {
+        document.getElementById('wsPathInput').value = path.trim();
+      }
+
+      // 清理 URL 中的查询参数，避免刷新重复填入
+      if (params.toString()) {
+        window.history.replaceState(null, '', window.location.pathname);
+      }
+    })();
+
     document.getElementById('wsConnectBtn').onclick = () => {
       const ip = wsIpInput.value.trim(), port = wsPortInput.value.trim();
       const ie = validateIP(ip), pe = validatePort(port);
