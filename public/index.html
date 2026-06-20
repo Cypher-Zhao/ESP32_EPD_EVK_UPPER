@@ -399,20 +399,20 @@
             <div id="modDataPreview" style="background:#1e1e1e;color:#ce9178;font-family:monospace;font-size:12px;padding:12px;border-radius:6px;max-height:200px;overflow-y:auto;white-space:pre-wrap;word-break:break-all;line-height:1.6"></div>
             <div id="modDataInfo" style="font-size:12px;color:var(--text-sec);margin-top:6px"></div>
           </div>
-          <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border)">
-            <div style="font-size:14px;font-weight:600;margin-bottom:12px">发送到设备</div>
-            <div class="form-row" style="margin-bottom:10px">
-              <div class="form-group">
-                <label>图片 ID</label>
-                <select id="imgFlashIdSelect" disabled style="padding:10px 12px;border:1px solid var(--border);border-radius:6px;font-size:14px;min-height:40px"></select>
-              </div>
-              <div style="display:flex;gap:8px;align-items:flex-end;padding-bottom:0">
-                <button class="btn btn-send" id="sendImgFlashBtn" disabled>发送图片</button>
-                <button class="btn btn-outline" id="showImgBtn" disabled>显示图片</button>
-              </div>
+        </div>
+        <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border)">
+          <div style="font-size:14px;font-weight:600;margin-bottom:12px">发送到设备</div>
+          <div class="form-row" style="margin-bottom:10px">
+            <div class="form-group">
+              <label>图片 ID</label>
+              <select id="imgFlashIdSelect" style="padding:10px 12px;border:1px solid var(--border);border-radius:6px;font-size:14px;min-height:40px"></select>
             </div>
-            <div id="sendImgProgress" style="font-size:12px;color:var(--text-sec);min-height:18px"></div>
+            <div style="display:flex;gap:8px;align-items:flex-end;padding-bottom:0">
+              <button class="btn btn-send" id="sendImgFlashBtn" disabled>发送图片</button>
+              <button class="btn btn-outline" id="showImgBtn" disabled>显示图片</button>
+            </div>
           </div>
+          <div id="sendImgProgress" style="font-size:12px;color:var(--text-sec);min-height:18px"></div>
         </div>
       </div>
     </div>
@@ -946,6 +946,8 @@
       document.getElementById('protoBtn10black').disabled = false;
       document.getElementById('protoBtn21').disabled = false;
       document.getElementById('protoBtn05').disabled = false;
+      document.getElementById('showImgBtn').disabled = false;
+      if (lastModResult) sendImgFlashBtn.disabled = false;
 
       setWifiEnabled(true);
       sendInput.focus();
@@ -986,6 +988,8 @@
       document.getElementById('protoBtn10black').disabled = true;
       document.getElementById('protoBtn21').disabled = true;
       document.getElementById('protoBtn05').disabled = true;
+      document.getElementById('showImgBtn').disabled = true;
+      sendImgFlashBtn.disabled = true;
 
       setWifiEnabled(false);
 
@@ -1395,9 +1399,7 @@
           const imgData = tmp.getContext('2d').getImageData(0, 0, w, h);
           const palette = document.getElementById('paletteSelect').value;
           lastModResult = generateModData(imgData, palette);
-          sendImgFlashBtn.disabled = false;
-          document.getElementById('showImgBtn').disabled = false;
-          imgFlashIdSelect.disabled = false;
+          sendImgFlashBtn.disabled = !connected;
           sendImgProgress.textContent = `数据就绪: ${lastModResult.bytes.length} 字节`;
         }
       }, 100);
