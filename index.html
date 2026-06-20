@@ -1,0 +1,1468 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>ESP32 EPD EVK 上位机</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    :root {
+      --primary: #0078d4; --primary-hover: #106ebe;
+      --success: #107c10; --danger: #d13438; --warning: #ff8c00;
+      --bg: #f3f3f3; --card-bg: #fff; --text: #1a1a1a;
+      --text-sec: #616161; --border: #e0e0e0;
+      --shadow: 0 2px 8px rgba(0,0,0,.08); --radius: 8px;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+      background: var(--bg); color: var(--text);
+      min-height: 100vh; padding: 16px;
+    }
+    .container { max-width: 800px; margin: 0 auto; }
+
+    /* 顶部 */
+    .header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 16px 20px; margin-bottom: 16px;
+      background: linear-gradient(135deg, #0078d4, #005a9e);
+      border-radius: var(--radius); color: #fff; box-shadow: var(--shadow);
+    }
+    .header h1 { font-size: 20px; font-weight: 600; }
+    .header .mode-badge {
+      font-size: 12px; padding: 4px 12px; border-radius: 12px;
+      background: rgba(255,255,255,.2); font-weight: 500;
+    }
+
+    /* 卡片 */
+    .card {
+      background: var(--card-bg); border-radius: var(--radius);
+      box-shadow: var(--shadow); margin-bottom: 16px; overflow: hidden;
+    }
+    .card-header {
+      padding: 14px 20px; font-size: 15px; font-weight: 600;
+      border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; gap: 8px;
+      cursor: pointer; user-select: none;
+      transition: background .15s;
+    }
+    .card-header:hover { background: rgba(0,0,0,.02); }
+    .card-header .chevron {
+      margin-left: auto; font-size: 12px; color: var(--text-sec);
+      transition: transform .25s;
+    }
+    .card.collapsed .card-header { border-bottom-color: transparent; }
+    .card.collapsed .chevron { transform: rotate(-90deg); }
+    .card-body {
+      padding: 20px;
+      transition: max-height .3s ease, padding .3s ease, opacity .2s ease;
+    }
+    .card.collapsed .card-body {
+      max-height: 0 !important; padding-top: 0; padding-bottom: 0;
+      overflow: hidden; opacity: 0;
+    }
+
+    /* 标签切换 */
+    .tabs { display: flex; border-bottom: 2px solid var(--border); margin-bottom: 16px; }
+    .tab {
+      padding: 10px 24px; cursor: pointer; font-size: 14px; font-weight: 500;
+      color: var(--text-sec); border-bottom: 2px solid transparent;
+      margin-bottom: -2px; transition: all .2s; user-select: none;
+    }
+    .tab:hover { color: var(--text); }
+    .tab.active { color: var(--primary); border-bottom-color: var(--primary); }
+    .tab.disabled { opacity: .4; cursor: not-allowed; pointer-events: none; }
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+
+    /* 表单 */
+    .form-row { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; }
+    .form-group { display: flex; flex-direction: column; gap: 6px; }
+    .form-group label { font-size: 13px; font-weight: 500; color: var(--text-sec); }
+    .form-group input, .form-group select {
+      padding: 10px 12px; border: 1px solid var(--border); border-radius: 6px;
+      font-size: 14px; outline: none; transition: border-color .2s, box-shadow .2s;
+      background: #fff; min-height: 40px; width: 100%;
+    }
+    .form-group input:focus, .form-group select:focus {
+      border-color: var(--primary); box-shadow: 0 0 0 2px rgba(0,120,212,.15);
+    }
+    .form-group input.invalid {
+      border-color: var(--danger); box-shadow: 0 0 0 2px rgba(209,52,56,.15);
+    }
+    .form-group .hint { font-size: 12px; color: var(--danger); min-height: 16px; }
+
+    /* 按钮 */
+    .btn {
+      padding: 10px 24px; border: none; border-radius: 6px;
+      font-size: 14px; font-weight: 500; cursor: pointer;
+      transition: background .2s, opacity .2s; white-space: nowrap;
+      min-height: 40px;
+    }
+    .btn:disabled { opacity: .5; cursor: not-allowed; }
+    .btn-primary { background: var(--primary); color: #fff; }
+    .btn-primary:hover:not(:disabled) { background: var(--primary-hover); }
+    .btn-danger { background: var(--danger); color: #fff; }
+    .btn-danger:hover:not(:disabled) { background: #a4262c; }
+    .btn-send { background: var(--success); color: #fff; }
+    .btn-send:hover:not(:disabled) { background: #0b6a0b; }
+    .btn-outline { background: transparent; color: var(--primary); border: 1px solid var(--primary); }
+    .btn-outline:hover:not(:disabled) { background: rgba(0,120,212,.05); }
+    .btn-sm { padding: 6px 12px; font-size: 12px; min-height: 32px; }
+
+    /* 状态 */
+    .status-bar {
+      display: flex; align-items: center; gap: 8px;
+      padding: 10px 16px; border-radius: 6px;
+      font-size: 13px; font-weight: 500; margin-top: 12px;
+    }
+    .status-bar.disconnected { background: #fde7e9; color: var(--danger); }
+    .status-bar.connecting { background: #fff4ce; color: var(--warning); }
+    .status-bar.connected { background: #dff6dd; color: var(--success); }
+    .status-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+    .disconnected .status-dot { background: var(--danger); }
+    .connecting .status-dot { background: var(--warning); animation: blink 1s infinite; }
+    .connected .status-dot { background: var(--success); }
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.3} }
+
+    /* 串口行: 下拉框和刷新按钮水平对齐 */
+    .serial-row {
+      display: flex; gap: 8px; align-items: stretch;
+    }
+    .serial-row .form-group { flex: 1; justify-content: flex-end; }
+    .serial-row .btn { align-self: flex-end; }
+
+    /* Web Serial 警告 */
+    #serial-not-supported {
+      display: none;
+      padding: 12px;
+      background: #fff4ce;
+      color: #8a6d3b;
+      border-radius: 6px;
+      margin-bottom: 12px;
+      font-size: 13px;
+    }
+
+    /* 串口状态 */
+    #serialStatus {
+      padding: 10px;
+      background: #f5f5f5;
+      border-radius: 6px;
+      font-size: 13px;
+      color: var(--text-sec);
+      min-height: 40px;
+      display: flex;
+      align-items: center;
+    }
+
+    /* 控制台 */
+    .console-messages {
+      background: #1e1e1e; border-radius: 6px;
+      min-height: 200px; max-height: 350px; overflow-y: auto;
+      padding: 14px; margin-bottom: 12px;
+      font-family: 'Cascadia Code', 'Fira Code', Consolas, monospace;
+      font-size: 13px; line-height: 1.7;
+    }
+    .console-messages::-webkit-scrollbar { width: 6px; }
+    .console-messages::-webkit-scrollbar-track { background: transparent; }
+    .console-messages::-webkit-scrollbar-thumb { background: #555; border-radius: 3px; }
+    .msg-line { margin-bottom: 2px; word-break: break-all; }
+    .msg-time { color: #6a9955; }
+    .msg-sent { color: #569cd6; }
+    .msg-received { color: #ce9178; }
+    .msg-system { color: #dcdcaa; }
+    .msg-error { color: #f44747; }
+    .empty-hint { color: #555; text-align: center; padding: 40px 20px; font-size: 14px; }
+
+    .send-row { display: flex; gap: 10px; }
+    .send-row input {
+      flex: 1; padding: 10px 14px; border: 1px solid var(--border); border-radius: 6px;
+      font-size: 14px; outline: none; min-height: 40px;
+      transition: border-color .2s;
+    }
+    .send-row input:focus { border-color: var(--primary); }
+    .send-row input:disabled { opacity: .4; }
+
+    .console-toolbar {
+      display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;
+    }
+    .console-toolbar .info { font-size: 12px; color: var(--text-sec); }
+
+    @media (max-width: 600px) {
+      body { padding: 10px; }
+      .header { flex-direction: column; gap: 10px; text-align: center; }
+      .header h1 { font-size: 18px; }
+      .form-row { flex-direction: column; }
+      .form-group { width: 100%; }
+      .tab { padding: 10px 16px; font-size: 13px; }
+      .send-row { flex-direction: column; }
+      .send-row input { font-size: 16px; } /* 防止iOS缩放 */
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <!-- 顶部 -->
+    <div class="header">
+      <h1>📡 ESP32 EPD EVK 上位机</h1>
+      <span class="mode-badge" id="modeBadge">未连接</span>
+    </div>
+
+    <!-- 连接配置 -->
+    <div class="card" id="connCard">
+      <div class="card-header"><span>🔌</span> 设备连接 <span class="chevron">▼</span></div>
+      <div class="card-body">
+        <div class="tabs">
+          <div class="tab active" data-tab="ws">WebSocket</div>
+          <div class="tab" data-tab="serial">串口连接</div>
+        </div>
+
+        <!-- WebSocket -->
+        <div class="tab-content active" id="tab-ws">
+          <div style="padding:8px 0 12px;font-size:13px;color:var(--text-sec)">直接通过 WebSocket 连接 ESP32（ESP32 需开启 WebSocket Server）</div>
+          <div class="form-row">
+            <div class="form-group" style="flex:2">
+              <label>IP 地址</label>
+              <input type="text" id="wsIpInput" placeholder="例如: 192.168.10.33" maxlength="45">
+              <span class="hint" id="wsIpHint"></span>
+            </div>
+            <div class="form-group" style="flex:1">
+              <label>端口</label>
+              <input type="text" id="wsPortInput" placeholder="80" value="80" maxlength="5">
+              <span class="hint" id="wsPortHint"></span>
+            </div>
+            <div class="form-group" style="flex:1">
+              <label>路径</label>
+              <input type="text" id="wsPathInput" placeholder="/ws" value="/ws" maxlength="64">
+              <span class="hint"></span>
+            </div>
+            <div style="display:flex;gap:8px;padding-bottom:22px">
+              <button class="btn btn-primary" id="wsConnectBtn">连接</button>
+              <button class="btn btn-danger" id="wsDisconnectBtn" disabled>断开</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Serial -->
+        <div class="tab-content" id="tab-serial">
+          <div id="serial-not-supported" style="display:none;padding:12px;background:#fff4ce;color:#8a6d3b;border-radius:6px;margin-bottom:12px;font-size:13px">
+            ⚠️ 当前浏览器不支持 Web Serial API，请使用 Chrome/Edge 89+ 浏览器访问
+          </div>
+          <div class="form-row" style="margin-bottom:12px">
+            <div class="form-group" style="flex:1">
+              <label>串口</label>
+              <div id="serialStatus" style="padding:10px;background:#f5f5f5;border-radius:6px;font-size:13px;color:var(--text-sec)">
+                未选择串口
+              </div>
+            </div>
+            <div style="display:flex;gap:8px;align-items:flex-end;padding-bottom:0">
+              <button class="btn btn-primary" id="selectDeviceBtn">选择串口</button>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group" style="flex:1">
+              <label>波特率</label>
+              <select id="baudRateSelect">
+                <option value="9600">9600</option>
+                <option value="19200">19200</option>
+                <option value="38400">38400</option>
+                <option value="57600">57600</option>
+                <option value="115200" selected>115200</option>
+                <option value="230400">230400</option>
+                <option value="460800">460800</option>
+                <option value="921600">921600</option>
+              </select>
+            </div>
+            <div style="display:flex;gap:8px;align-items:flex-end;padding-bottom:0">
+              <button class="btn btn-primary" id="serialConnectBtn">连接</button>
+              <button class="btn btn-danger" id="serialDisconnectBtn" disabled>断开</button>
+            </div>
+          </div>
+          <!-- WiFi 配置 -->
+          <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border)">
+            <div style="font-size:14px;font-weight:600;margin-bottom:12px">WiFi 配置</div>
+            <div class="form-row" style="margin-bottom:10px">
+              <div class="form-group" style="flex:2">
+                <label>SSID</label>
+                <input type="text" id="wifiSsidInput" placeholder="WiFi 名称" maxlength="63" disabled>
+              </div>
+              <div style="display:flex;align-items:flex-end;padding-bottom:0">
+                <button class="btn btn-primary" id="wifiSetSsidBtn" disabled>设置 SSID</button>
+              </div>
+            </div>
+            <div class="form-row" style="margin-bottom:10px">
+              <div class="form-group" style="flex:2">
+                <label>密码</label>
+                <input type="text" id="wifiPwdInput" placeholder="WiFi 密码" maxlength="63" disabled>
+              </div>
+              <div style="display:flex;align-items:flex-end;padding-bottom:0">
+                <button class="btn btn-primary" id="wifiSetPwdBtn" disabled>设置密码</button>
+              </div>
+            </div>
+            <div class="form-row" style="margin-bottom:10px">
+              <div style="display:flex;gap:8px;flex-wrap:wrap">
+                <button class="btn btn-outline" id="wifiStatusBtn" disabled>获取 WiFi 状态</button>
+                <button class="btn btn-send" id="wifiConnectBtn" disabled>连接 WiFi</button>
+                <button class="btn btn-danger" id="wifiDisconnectBtn" disabled>断开 WiFi</button>
+              </div>
+            </div>
+            <div id="wifiStatusInfo" style="font-size:13px;color:var(--text-sec);min-height:20px"></div>
+          </div>
+        </div>
+
+        <div class="status-bar disconnected" id="statusBar">
+          <span class="status-dot"></span>
+          <span id="statusText">未连接</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 控制台 (内嵌) -->
+    <div class="card" id="consoleCard">
+      <div class="card-header"><span>📟</span> 控制台 <span class="chevron">▼</span></div>
+      <div class="card-body">
+        <div class="console-toolbar">
+          <span class="info" id="msgCount">0 条消息</span>
+          <div style="display:flex;align-items:center;gap:10px">
+            <label style="font-size:12px;color:var(--text-sec);display:flex;align-items:center;gap:5px;cursor:pointer;user-select:none">
+              <input type="checkbox" id="protoFilterToggle" checked style="cursor:pointer"> 仅显示协议消息
+            </label>
+            <button class="btn btn-outline btn-sm" id="clearMsgBtn">清空日志</button>
+          </div>
+        </div>
+        <div class="console-messages" id="messageArea">
+          <div class="empty-hint">暂无消息，请先连接设备</div>
+        </div>
+        <div class="send-row">
+          <input type="text" id="sendInput" placeholder="输入要发送的消息..." disabled>
+          <button class="btn btn-send" id="sendBtn" disabled>发送</button>
+        </div>
+        <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn btn-outline" id="protoBtn00" disabled>心跳</button>
+          <button class="btn btn-outline" id="protoBtn10" disabled>全屏刷新(白)</button>
+          <button class="btn btn-outline" id="protoBtn10black" disabled>全屏刷新(黑)</button>
+          <button class="btn btn-outline" id="protoBtn21" disabled>获取IC版本</button>
+          <button class="btn btn-outline" id="protoBtn05" disabled>展示状态</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 图片抖动与取模 -->
+    <div class="card" id="imageCard">
+      <div class="card-header"><span>🖼️</span> 图片抖动与取模 <span class="chevron">▼</span></div>
+      <div class="card-body">
+        <div class="form-row" style="margin-bottom:12px">
+          <div class="form-group" style="flex:1">
+            <label>选择图片</label>
+            <input type="file" id="imageInput" accept="image/*" style="padding:8px 0">
+          </div>
+          <div id="origSizeInfo" style="font-size:13px;color:var(--text-sec);align-self:flex-end;padding-bottom:8px"></div>
+        </div>
+        <div class="form-row" style="margin-bottom:12px">
+          <div class="form-group">
+            <label>目标宽度 (px)</label>
+            <input type="number" id="targetWidth" disabled min="1" style="width:100px">
+          </div>
+          <div class="form-group">
+            <label>目标高度 (px)</label>
+            <input type="number" id="targetHeight" disabled min="1" style="width:100px">
+          </div>
+          <div class="form-group">
+            <label>抖动色板</label>
+            <select id="paletteSelect">
+              <option value="bw1">黑白 1bit</option>
+              <option value="bwr1">黑白红 1bit</option>
+              <option value="bwyr2">黑白黄红 2bit</option>
+            </select>
+          </div>
+          <div style="padding-bottom:0;display:flex;gap:8px">
+            <button class="btn btn-primary" id="convertBtn" disabled>转换</button>
+            <button class="btn btn-outline" id="viewFullBtn" disabled style="display:none">查看大图</button>
+          </div>
+        </div>
+        <div id="imagePreview" style="display:none;margin-top:16px">
+          <div style="display:flex;gap:16px;flex-wrap:wrap">
+            <div style="flex:1;min-width:200px">
+              <div style="font-size:13px;font-weight:500;color:var(--text-sec);margin-bottom:8px">原图</div>
+              <canvas id="canvasOriginal" style="width:100%;max-height:400px;object-fit:contain;border:1px solid var(--border);border-radius:6px;background:#fff"></canvas>
+            </div>
+            <div style="flex:1;min-width:200px">
+              <div style="font-size:13px;font-weight:500;color:var(--text-sec);margin-bottom:8px">抖动后</div>
+              <img id="ditheredPreview" style="width:100%;max-height:400px;object-fit:contain;border:1px solid var(--border);border-radius:6px;background:#fff;display:none">
+              <canvas id="canvasDithered" style="display:none"></canvas>
+            </div>
+          </div>
+          <div style="margin-top:16px">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+              <span style="font-size:13px;font-weight:500;color:var(--text-sec)">取模数据预览</span>
+              <button class="btn btn-outline btn-sm" id="copyDataBtn">复制数据</button>
+            </div>
+            <div id="modDataPreview" style="background:#1e1e1e;color:#ce9178;font-family:monospace;font-size:12px;padding:12px;border-radius:6px;max-height:200px;overflow-y:auto;white-space:pre-wrap;word-break:break-all;line-height:1.6"></div>
+            <div id="modDataInfo" style="font-size:12px;color:var(--text-sec);margin-top:6px"></div>
+          </div>
+          <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border)">
+            <div style="font-size:14px;font-weight:600;margin-bottom:12px">发送到设备</div>
+            <div class="form-row" style="margin-bottom:10px">
+              <div class="form-group">
+                <label>图片 ID</label>
+                <select id="imgFlashIdSelect" disabled style="padding:10px 12px;border:1px solid var(--border);border-radius:6px;font-size:14px;min-height:40px"></select>
+              </div>
+              <div style="display:flex;gap:8px;align-items:flex-end;padding-bottom:0">
+                <button class="btn btn-send" id="sendImgFlashBtn" disabled>发送图片</button>
+                <button class="btn btn-outline" id="showImgBtn" disabled>显示图片</button>
+              </div>
+            </div>
+            <div id="sendImgProgress" style="font-size:12px;color:var(--text-sec);min-height:18px"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // ========== 元素引用 ==========
+    const statusBar = document.getElementById('statusBar');
+    const statusText = document.getElementById('statusText');
+    const modeBadge = document.getElementById('modeBadge');
+    const sendInput = document.getElementById('sendInput');
+    const sendBtn = document.getElementById('sendBtn');
+    const messageArea = document.getElementById('messageArea');
+    const msgCountEl = document.getElementById('msgCount');
+    const origSizeInfo = document.getElementById('origSizeInfo');
+
+    let connected = false;
+    let currentMode = null; // 'ws' | 'serial-web'
+    let messageCount = 0;
+    let rxBuffer = []; // 接收缓冲区，处理粘包
+    let protoPending = null; // 等待协议响应的回调
+
+    // ========== 协议命令配置 ==========
+    // 统一管理所有协议命令，方便编辑和新增
+    const PROTO_COMMANDS = {
+      // 基础命令
+      HEARTBEAT:        { cmd: 0x00, name: '心跳',        desc: '心跳检测',         data: [] },
+      STATUS:           { cmd: 0x05, name: '状态信息',    desc: '获取设备状态',     data: [] },
+      VERSION:          { cmd: 0x21, name: '版本',        desc: '获取固件版本',     data: [] },
+      
+      // 屏幕控制命令
+      FULL_REFRESH:     { cmd: 0x10, name: '全屏刷新',    desc: '全屏刷新指定颜色', data: null }, // data 由参数决定
+      SHOW_IMAGE:       { cmd: 0x11, name: '显示图片',    desc: '显示指定ID的图片', data: null }, // data 由参数决定
+      
+      // Flash 操作命令
+      FLASH_ERASE:      { cmd: 0x01, name: 'Flash擦除',   desc: '擦除Flash区域',    data: null }, // data 由参数决定
+      FLASH_WRITE:      { cmd: 0x02, name: 'Flash写入',   desc: '写入Flash数据',    data: null }, // data 由参数决定
+      
+      // WiFi 命令
+      WIFI_SET_SSID:    { cmd: 0x30, name: '设置SSID',    desc: '设置WiFi名称',     data: null }, // data 为字符串
+      WIFI_SET_PWD:     { cmd: 0x31, name: '设置密码',    desc: '设置WiFi密码',     data: null }, // data 为字符串
+      WIFI_GET_STATUS:  { cmd: 0x32, name: 'WiFi状态',    desc: '获取WiFi状态',     data: [] },
+      WIFI_CONNECT:     { cmd: 0x33, name: '连接WiFi',    desc: '连接WiFi网络',     data: [] },
+      WIFI_DISCONNECT:  { cmd: 0x34, name: '断开WiFi',    desc: '断开WiFi连接',     data: [] },
+    };
+
+    // 颜色定义（用于全屏刷新）
+    const COLORS = {
+      BLACK: 0x00,
+      WHITE: 0x01,
+      YELLOW: 0x02,
+      RED: 0x03
+    };
+
+    // 错误代码定义
+    const ERROR_CODES = {
+      1: '命令错误',
+      2: '参数长度错误',
+      3: 'CRC错误',
+      4: '执行错误'
+    };
+
+    // ========== 协议发送工具函数 ==========
+    
+    /**
+     * 发送协议命令
+     * @param {Object} command - 命令配置对象
+     * @param {Array|number[]} [data] - 命令数据（可选，覆盖配置中的默认数据）
+     */
+    async function sendCommand(command, data = null) {
+      const cmdData = data !== null ? data : (command.data || []);
+      await sendProtoFrame(command.cmd, cmdData);
+    }
+
+    /**
+     * 发送带字符串参数的命令
+     * @param {Object} command - 命令配置对象
+     * @param {string} str - 字符串参数
+     */
+    async function sendCommandStr(command, str) {
+      const bytes = Array.from(new TextEncoder().encode(str));
+      await sendProtoFrame(command.cmd, bytes);
+    }
+
+    /**
+     * 发送命令并等待响应
+     * @param {Object} command - 命令配置对象
+     * @param {Array|number[]} [data] - 命令数据
+     * @param {number} [timeout] - 超时时间
+     * @returns {Promise} 响应数据
+     */
+    async function sendCommandWait(command, data = null, timeout = 5000) {
+      const cmdData = data !== null ? data : (command.data || []);
+      return await sendProtoFrameWait(command.cmd, cmdData, timeout);
+    }
+
+    // ========== 标签切换 (含互斥) ==========
+    document.querySelectorAll('.tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        if (tab.classList.contains('disabled')) return;
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+        tab.classList.add('active');
+        document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
+      });
+    });
+
+    function setTabLocked(locked) {
+      document.querySelectorAll('.tab').forEach(t => {
+        if (!t.classList.contains('active')) {
+          t.classList.toggle('disabled', locked);
+        }
+      });
+    }
+
+    // ========== 校验 ==========
+    function validateIP(ip) {
+      if (!ip) return '请输入 IP 地址';
+      const m = ip.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+      if (m) { for (let i = 1; i <= 4; i++) if (+m[i] > 255) return `第 ${i} 段超出 0-255`; return ''; }
+      if (ip.includes(':') && /^[\da-fA-F:]+$/.test(ip)) return '';
+      if (/^[a-zA-Z0-9]([a-zA-Z0-9\-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9\-]*[a-zA-Z0-9])?)*$/.test(ip)) return '';
+      return 'IP 地址格式不正确';
+    }
+    function validatePort(p) {
+      if (!p) return '请输入端口号';
+      const n = parseInt(p, 10);
+      if (isNaN(n)) return '端口必须是数字';
+      if (n < 1 || n > 65535) return '端口范围: 1-65535';
+      return '';
+    }
+
+    // ========== WebSocket Server 直连 ==========
+    let wsDevice = null; // 直连 ESP32 的 WebSocket
+
+    const wsIpInput = document.getElementById('wsIpInput');
+    const wsPortInput = document.getElementById('wsPortInput');
+    const wsIpHint = document.getElementById('wsIpHint');
+    const wsPortHint = document.getElementById('wsPortHint');
+
+    wsIpInput.addEventListener('input', () => { const e = validateIP(wsIpInput.value.trim()); wsIpHint.textContent = e; wsIpInput.classList.toggle('invalid', !!e); });
+    wsPortInput.addEventListener('input', () => { const e = validatePort(wsPortInput.value.trim()); wsPortHint.textContent = e; wsPortInput.classList.toggle('invalid', !!e); });
+    wsIpInput.addEventListener('keydown', e => { if (e.key === 'Enter') wsPortInput.focus(); });
+    wsPortInput.addEventListener('keydown', e => { if (e.key === 'Enter') document.getElementById('wsConnectBtn').click(); });
+
+    document.getElementById('wsConnectBtn').onclick = () => {
+      const ip = wsIpInput.value.trim(), port = wsPortInput.value.trim();
+      const ie = validateIP(ip), pe = validatePort(port);
+      wsIpHint.textContent = ie; wsPortHint.textContent = pe;
+      wsIpInput.classList.toggle('invalid', !!ie); wsPortInput.classList.toggle('invalid', !!pe);
+      if (ie || pe) return;
+
+      const path = (document.getElementById('wsPathInput').value.trim() || '/');
+      const wsUrl = `ws://${ip}:${port}${path}`;
+      setStatus('connecting', `正在连接 ${wsUrl} ...`);
+      document.getElementById('wsConnectBtn').disabled = true;
+
+      try {
+        wsDevice = new WebSocket(wsUrl);
+        wsDevice.binaryType = 'arraybuffer';
+
+        wsDevice.onopen = () => {
+          console.log('[WS直连] 已连接');
+          onConnected('ws', `已连接到 ${wsUrl}`, `WS ${ip}:${port}${path}`);
+        };
+
+        wsDevice.onmessage = (e) => {
+          if (e.data instanceof ArrayBuffer) {
+            // 二进制帧 → 字节数组 → 协议解析
+            rxBuffer.push(...Array.from(new Uint8Array(e.data)));
+            processReceivedData();
+          } else if (typeof e.data === 'string') {
+            // 文本帧 → 直接显示
+            addMessage('received', e.data);
+          }
+        };
+
+        wsDevice.onerror = (e) => {
+          console.error('[WS直连] 错误:', e);
+          // onclose 会紧随触发，由 onclose 处理断开逻辑
+        };
+
+        wsDevice.onclose = (e) => {
+          console.log('[WS直连] 已断开', e.code, e.reason);
+          wsDevice = null;
+          if (currentMode === 'ws') {
+            // 给出详细诊断信息
+            let hint = '';
+            if (location.protocol === 'https:') {
+              hint = '（HTTPS 页面不允许 ws:// 连接，请用 http:// 访问本页面，或 ESP32 改用 wss://）';
+            } else if (e.code === 1006) {
+              hint = '（连接被关闭：ESP32 可能未开启 WebSocket Server，或端口/IP 不正确）';
+            }
+            onDisconnected(`WebSocket 连接已关闭 ${hint}`.trim());
+          }
+        };
+      } catch (err) {
+        addMessage('error', `连接失败: ${err.message}`);
+        setStatus('disconnected', `连接失败: ${err.message}`);
+        document.getElementById('wsConnectBtn').disabled = false;
+      }
+    };
+
+    document.getElementById('wsDisconnectBtn').onclick = () => {
+      if (wsDevice) {
+        wsDevice.close();
+        wsDevice = null;
+      }
+    };
+
+    // ========== Web Serial API 检测 ==========
+    const serialSupported = 'serial' in navigator;
+    if (!serialSupported) {
+      document.getElementById('serial-not-supported').style.display = 'block';
+      document.getElementById('selectDeviceBtn').disabled = true;
+      document.getElementById('serialConnectBtn').disabled = true;
+    }
+
+    // ========== Web Serial 串口变量 ==========
+    let serialPort = null;
+    let serialReader = null;
+    let serialOpen = false;
+    let serialClose = true; // 用户主动关闭标记
+
+    // ========== Serial (Web Serial API) ==========
+    document.getElementById('selectDeviceBtn').onclick = async () => {
+      try {
+        if (!serialSupported) {
+          addMessage('error', '当前浏览器不支持 Web Serial API，请使用 Chrome/Edge 89+');
+          return;
+        }
+
+        // 请求串口权限
+        const port = await navigator.serial.requestPort();
+        
+        // 关闭之前的连接
+        if (serialOpen) {
+          await closeSerialPort();
+        }
+        
+        serialPort = port;
+        serialClose = false;
+        
+        // 更新状态显示
+        document.getElementById('serialStatus').textContent = '串口已选择，点击「连接」打开';
+        document.getElementById('serialStatus').style.color = 'var(--primary)';
+        
+        addMessage('system', '串口已选择');
+        
+        // 自动连接
+        await openSerialPort();
+        
+      } catch (err) {
+        if (err.name === 'NotFoundError') {
+          addMessage('system', '用户取消选择串口');
+        } else {
+          addMessage('error', `选择串口失败: ${err.message}`);
+        }
+      }
+    };
+
+    // 打开串口
+    async function openSerialPort() {
+      if (!serialPort) {
+        addMessage('error', '请先选择串口');
+        return;
+      }
+
+      const baud = parseInt(document.getElementById('baudRateSelect').value, 10);
+
+      try {
+        setStatus('connecting', '正在打开串口...');
+        document.getElementById('serialConnectBtn').disabled = true;
+
+        // 打开串口
+        await serialPort.open({
+          baudRate: baud,
+          dataBits: 8,
+          stopBits: 1,
+          parity: 'none',
+          bufferSize: 1024,
+          flowControl: 'none'
+        });
+
+        // 仅开启DTR 禁用 RTS 信号，避免 ESP32 重启
+        // 未来下位机可能会修复
+        try {
+          await serialPort.setSignals({ dataTerminalReady: true, requestToSend: false });
+        } catch (e) {
+          // 某些设备可能不支持
+        }
+
+        serialOpen = true;
+        serialClose = false;
+
+        // 更新状态
+        document.getElementById('serialStatus').textContent = `已连接 @ ${baud} bps`;
+        document.getElementById('serialStatus').style.color = 'var(--success)';
+
+        // 标记为串口模式
+        currentMode = 'serial-web';
+        connected = true;
+        onConnected('serial-web', `已连接串口 @ ${baud} bps`, `串口 ${baud}`);
+
+        // 开始读取数据
+        readSerialData();
+
+      } catch (err) {
+        addMessage('error', `打开串口失败: ${err.message}`);
+        setStatus('disconnected', `打开串口失败: ${err.message}`);
+        document.getElementById('serialConnectBtn').disabled = false;
+      }
+    }
+
+    // 关闭串口
+    async function closeSerialPort() {
+      serialOpen = false;
+      serialClose = true;
+
+      try {
+        // 取消读取
+        if (serialReader) {
+          try {
+            await serialReader.cancel();
+          } catch (e) {
+            // cancel 可能已经释放了 reader
+          }
+          try {
+            serialReader.releaseLock();
+          } catch (e) {
+            // reader 可能已经释放
+          }
+          serialReader = null;
+        }
+
+        // 关闭端口
+        if (serialPort) {
+          try {
+            await serialPort.close();
+          } catch (e) {
+            // 端口可能已经关闭
+          }
+        }
+      } catch (err) {
+        console.warn('关闭串口错误:', err);
+      }
+    }
+
+    // 读取串口数据
+    async function readSerialData() {
+      while (serialOpen && serialPort && serialPort.readable) {
+        try {
+          serialReader = serialPort.readable.getReader();
+          
+          while (true) {
+            const { value, done } = await serialReader.read();
+            if (done) {
+              break;
+            }
+            if (value && value.length > 0) {
+              // 将收到的字节追加到接收缓冲区
+              rxBuffer.push(...Array.from(value));
+              // 处理接收数据
+              processReceivedData();
+            }
+          }
+        } catch (err) {
+          if (serialOpen) {
+            console.error('串口读取错误:', err);
+          }
+        } finally {
+          try {
+            if (serialReader) {
+              serialReader.releaseLock();
+            }
+          } catch (e) {}
+          serialReader = null;
+        }
+      }
+    }
+
+    // 写串口数据
+    async function writeSerialData(data) {
+      if (!serialPort || !serialPort.writable) {
+        throw new Error('串口未打开');
+      }
+
+      const writer = serialPort.writable.getWriter();
+      try {
+        await writer.write(data);
+      } finally {
+        writer.releaseLock();
+      }
+    }
+
+    document.getElementById('serialConnectBtn').onclick = async () => {
+      if (serialOpen) {
+        // 断开连接
+        await closeSerialPort();
+        onDisconnected('已断开串口连接');
+        document.getElementById('serialStatus').textContent = '已断开';
+        document.getElementById('serialStatus').style.color = 'var(--text-sec)';
+      } else if (serialPort) {
+        // 重新连接
+        await openSerialPort();
+      } else {
+        addMessage('error', '请先选择串口');
+      }
+    };
+
+    document.getElementById('serialDisconnectBtn').onclick = async () => {
+      await closeSerialPort();
+      onDisconnected('已断开串口连接');
+      document.getElementById('serialStatus').textContent = '已断开';
+      document.getElementById('serialStatus').style.color = 'var(--text-sec)';
+    };
+
+    // 监听串口连接/断开事件
+    if (serialSupported) {
+      navigator.serial.addEventListener('connect', (e) => {
+        addMessage('system', '检测到新串口设备');
+      });
+
+      navigator.serial.addEventListener('disconnect', (e) => {
+        if (serialPort === e.target) {
+          addMessage('system', '串口设备已断开');
+          onDisconnected('串口设备已断开');
+          document.getElementById('serialStatus').textContent = '设备已断开';
+          document.getElementById('serialStatus').style.color = 'var(--danger)';
+          serialPort = null;
+          serialOpen = false;
+        }
+      });
+    }
+
+    // 处理接收到的数据
+    function processReceivedData() {
+      const filterOn = document.getElementById('protoFilterToggle').checked;
+      let rawBytes = []; // 收集非协议数据
+      while (true) {
+        // 跳过非帧头字节
+        while (rxBuffer.length > 0 && rxBuffer[0] !== PROTO_HEAD) {
+          rawBytes.push(rxBuffer.shift());
+        }
+        // 显示收集到的非协议数据（仅一次）
+        if (rawBytes.length > 0 && !filterOn) {
+          const rawStr = new TextDecoder().decode(new Uint8Array(rawBytes));
+          addMessage('received', rawStr);
+          rawBytes = [];
+        }
+        if (rxBuffer.length < 6) break; // 数据不够，等待下次
+        const dataLen = (rxBuffer[2] << 8) | rxBuffer[3];
+        const frameLen = 4 + dataLen + 2;
+        if (rxBuffer.length < frameLen) break; // 帧不完整，等待下次
+        // 提取一帧
+        const frameBytes = rxBuffer.splice(0, frameLen);
+        const parsed = parseProtoFrame(frameBytes);
+        if (!parsed) {
+          // CRC 校验失败，跳过这个帧头，继续扫描
+          rxBuffer.unshift(...frameBytes.slice(1));
+          continue;
+        }
+        // 流控：如果有等待的回调，先执行
+        if (protoPending) {
+          const cb = protoPending;
+          protoPending = null;
+          cb(parsed);
+          continue;
+        }
+        if (filterOn) {
+          // 获取命令名称
+          const cmdName = getCommandName(parsed.cmd);
+          
+          if (parsed.cmd === PROTO_COMMANDS.VERSION.cmd && parsed.dataLen > 0) {
+            // 版本信息响应
+            const str = new TextDecoder().decode(new Uint8Array(parsed.data));
+            addMessage('received', `[版本] ${str}`);
+          } else if (parsed.cmd === PROTO_COMMANDS.WIFI_GET_STATUS.cmd && parsed.dataLen > 0) {
+            // WiFi 状态响应
+            const str = new TextDecoder().decode(new Uint8Array(parsed.data));
+            document.getElementById('wifiStatusInfo').textContent = str;
+            addMessage('received', `[WiFi] ${str}`);
+          } else if ((parsed.cmd & 0x80) !== 0) {
+            // 错误响应: cmd | 0x80 格式
+            const origCmd = parsed.cmd & 0x7F;
+            const errCode = parsed.dataLen > 0 ? parsed.data[0] : '?';
+            const errName = ERROR_CODES[errCode] || `未知错误(${errCode})`;
+            addMessage('error', `[协议错误] ${getCommandName(origCmd)}: ${errName}`);
+          } else if (parsed.dataLen === 0) {
+            // 通用规则: 同 CMD 无数据 → OK
+            addMessage('received', `[${cmdName}] OK`);
+          } else {
+            // 有数据的其他响应
+            addMessage('received', `[${cmdName}] ${parsed.data.map(b => b.toString(16).padStart(2,'0').toUpperCase()).join(' ')}`);
+          }
+        }
+      }
+    }
+
+    /**
+     * 根据命令码获取命令名称
+     * @param {number} cmd - 命令码
+     * @returns {string} 命令名称
+     */
+    function getCommandName(cmd) {
+      for (const key in PROTO_COMMANDS) {
+        if (PROTO_COMMANDS[key].cmd === cmd) {
+          return PROTO_COMMANDS[key].name;
+        }
+      }
+      return `CMD 0x${cmd.toString(16).padStart(2, '0').toUpperCase()}`;
+    }
+
+    // ========== 状态管理 ==========
+    function setStatus(state, text) {
+      statusBar.className = 'status-bar ' + state;
+      statusText.textContent = text;
+    }
+
+    function onConnected(mode, statusMsg, badgeLabel) {
+      connected = true;
+      currentMode = mode;
+      setStatus('connected', statusMsg);
+      modeBadge.textContent = badgeLabel;
+
+      // 启用发送
+      sendInput.disabled = false;
+      sendBtn.disabled = false;
+      document.getElementById('protoBtn00').disabled = false;
+      document.getElementById('protoBtn10').disabled = false;
+      document.getElementById('protoBtn10black').disabled = false;
+      document.getElementById('protoBtn21').disabled = false;
+      document.getElementById('protoBtn05').disabled = false;
+
+      setWifiEnabled(true);
+      sendInput.focus();
+
+      // 锁定标签
+      setTabLocked(true);
+
+      if (mode === 'ws') {
+        document.getElementById('wsConnectBtn').disabled = true;
+        document.getElementById('wsDisconnectBtn').disabled = false;
+        wsIpInput.disabled = true; wsPortInput.disabled = true;
+        document.getElementById('wsPathInput').disabled = true;
+      } else if (mode === 'serial-web') {
+        document.getElementById('serialConnectBtn').disabled = false;
+        document.getElementById('serialConnectBtn').textContent = '断开';
+        document.getElementById('serialConnectBtn').classList.remove('btn-primary');
+        document.getElementById('serialConnectBtn').classList.add('btn-danger');
+        document.getElementById('serialDisconnectBtn').disabled = true;
+        document.getElementById('serialDisconnectBtn').style.display = 'none';
+        document.getElementById('baudRateSelect').disabled = true;
+        document.getElementById('selectDeviceBtn').disabled = true;
+      }
+
+      addMessage('system', statusMsg);
+    }
+
+    function onDisconnected(reason) {
+      connected = false;
+      currentMode = null;
+      setStatus('disconnected', reason || '未连接');
+      modeBadge.textContent = '未连接';
+
+      // 禁用发送
+      sendInput.disabled = true;
+      sendBtn.disabled = true;
+      document.getElementById('protoBtn00').disabled = true;
+      document.getElementById('protoBtn10').disabled = true;
+      document.getElementById('protoBtn10black').disabled = true;
+      document.getElementById('protoBtn21').disabled = true;
+      document.getElementById('protoBtn05').disabled = true;
+
+      setWifiEnabled(false);
+
+      // 解锁标签
+      setTabLocked(false);
+
+      // 恢复所有按钮
+      document.getElementById('wsConnectBtn').disabled = false;
+      document.getElementById('wsDisconnectBtn').disabled = true;
+      wsIpInput.disabled = false; wsPortInput.disabled = false;
+      document.getElementById('wsPathInput').disabled = false;
+
+      // 恢复串口按钮状态
+      document.getElementById('serialConnectBtn').disabled = false;
+      document.getElementById('serialConnectBtn').textContent = '连接';
+      document.getElementById('serialConnectBtn').classList.remove('btn-danger');
+      document.getElementById('serialConnectBtn').classList.add('btn-primary');
+      document.getElementById('serialDisconnectBtn').disabled = true;
+      document.getElementById('serialDisconnectBtn').style.display = '';
+      document.getElementById('baudRateSelect').disabled = false;
+      document.getElementById('selectDeviceBtn').disabled = false;
+
+      if (reason) addMessage('system', reason);
+    }
+
+    // ========== 控制台: 发送与消息 ==========
+    async function handleSend() {
+      const data = sendInput.value;
+      if (!data) return;
+      if (!connected) { addMessage('error', '请先连接设备'); return; }
+      
+      try {
+        if (currentMode === 'serial-web' && serialPort && serialOpen) {
+          // Web Serial 模式：直接发送
+          const encoder = new TextEncoder();
+          await writeSerialData(encoder.encode(data));
+          addMessage('sent', data);
+          sendInput.value = '';
+          sendInput.focus();
+        } else if (currentMode === 'ws' && wsDevice && wsDevice.readyState === 1) {
+          // WebSocket 直连模式：直接发送到 ESP32
+          const encoder = new TextEncoder();
+          wsDevice.send(encoder.encode(data));
+          addMessage('sent', data);
+          sendInput.value = '';
+          sendInput.focus();
+        }
+      } catch (err) {
+        addMessage('error', `发送失败: ${err.message}`);
+      }
+    }
+    sendBtn.onclick = handleSend;
+    sendInput.addEventListener('keydown', e => { if (e.key === 'Enter') handleSend(); });
+
+    // ========== 协议发送 ==========
+    const PROTO_HEAD = 0xAA;
+
+    // 协议解析
+    function parseProtoFrame(bytes) {
+      if (!bytes || bytes.length < 6) return null;
+      if (bytes[0] !== PROTO_HEAD) return null;
+      const dataLen = (bytes[2] << 8) | bytes[3];
+      const frameLen = 4 + dataLen + 2;
+      if (bytes.length < frameLen) return null;
+      const receivedCrc = bytes[frameLen - 2] | (bytes[frameLen - 1] << 8);
+      const calcCrc = crc16Modbus(bytes.slice(0, frameLen - 2));
+      if (receivedCrc !== calcCrc) return null;
+      return { cmd: bytes[1], dataLen, data: bytes.slice(4, 4 + dataLen) };
+    }
+
+    function crc16Modbus(data) {
+      let crc = 0xFFFF;
+      for (let i = 0; i < data.length; i++) {
+        crc ^= data[i];
+        for (let j = 0; j < 8; j++) {
+          if (crc & 1) crc = (crc >> 1) ^ 0xA001;
+          else crc >>= 1;
+        }
+      }
+      return crc;
+    }
+
+    function buildProtoFrame(cmd, data) {
+      const len = data ? data.length : 0;
+      const body = [PROTO_HEAD, cmd, (len >> 8) & 0xFF, len & 0xFF];
+      if (len > 0) body.push(...data);
+      const crc = crc16Modbus(body);
+      body.push(crc & 0xFF, (crc >> 8) & 0xFF);
+      return body;
+    }
+
+    async function sendProtoFrame(cmd, data) {
+      if (!connected) { addMessage('error', '请先连接设备'); return; }
+      const frame = buildProtoFrame(cmd, data || []);
+      const hexStr = frame.map(b => b.toString(16).padStart(2, '0').toUpperCase()).join(' ');
+      addMessage('sent', `[协议] CMD 0x${cmd.toString(16).padStart(2, '0').toUpperCase()}: ${hexStr}`);
+      
+      try {
+        if (currentMode === 'serial-web' && serialPort && serialOpen) {
+          // Web Serial 模式：直接发送字节数组
+          await writeSerialData(new Uint8Array(frame));
+        } else if (currentMode === 'ws' && wsDevice && wsDevice.readyState === 1) {
+          // WebSocket 直连模式：直接发送二进制帧到 ESP32
+          wsDevice.send(new Uint8Array(frame));
+        }
+      } catch (err) {
+        addMessage('error', `协议发送失败: ${err.message}`);
+      }
+    }
+
+    // 发送协议帧并等待响应（返回 Promise）
+    async function sendProtoFrameWait(cmd, data, timeout) {
+      return new Promise(async (resolve, reject) => {
+        const frame = buildProtoFrame(cmd, data || []);
+        const hexStr = frame.map(b => b.toString(16).padStart(2, '0').toUpperCase()).join(' ');
+        addMessage('sent', `[协议] CMD 0x${cmd.toString(16).padStart(2, '0').toUpperCase()}: ${hexStr}`);
+        const timer = setTimeout(() => {
+          protoPending = null;
+          reject(new Error('响应超时'));
+        }, timeout || 5000);
+        protoPending = (parsed) => {
+          clearTimeout(timer);
+          resolve(parsed);
+        };
+        
+        try {
+          if (currentMode === 'serial-web' && serialPort && serialOpen) {
+            // Web Serial 模式：直接发送字节数组
+            await writeSerialData(new Uint8Array(frame));
+          } else if (currentMode === 'ws' && wsDevice && wsDevice.readyState === 1) {
+            // WebSocket 直连模式：直接发送二进制帧到 ESP32
+            wsDevice.send(new Uint8Array(frame));
+          } else {
+            clearTimeout(timer);
+            protoPending = null;
+            reject(new Error('未连接到设备'));
+          }
+        } catch (err) {
+          clearTimeout(timer);
+          protoPending = null;
+          reject(err);
+        }
+      });
+    }
+
+    // ========== 命令按钮绑定 ==========
+    // 使用统一的命令配置，方便管理
+    
+    // 基础命令按钮
+    document.getElementById('protoBtn00').onclick = () => sendCommand(PROTO_COMMANDS.HEARTBEAT);
+    document.getElementById('protoBtn21').onclick = () => sendCommand(PROTO_COMMANDS.VERSION);
+    document.getElementById('protoBtn05').onclick = () => sendCommand(PROTO_COMMANDS.STATUS);
+    
+    // 屏幕控制按钮
+    document.getElementById('protoBtn10').onclick = () => sendCommand(PROTO_COMMANDS.FULL_REFRESH, [COLORS.WHITE]);
+    document.getElementById('protoBtn10black').onclick = () => sendCommand(PROTO_COMMANDS.FULL_REFRESH, [COLORS.BLACK]);
+    
+    // 显示图片按钮
+    document.getElementById('showImgBtn').onclick = () => {
+      const imgId = parseInt(document.getElementById('imgFlashIdSelect').value, 10);
+      sendCommand(PROTO_COMMANDS.SHOW_IMAGE, [imgId & 0xFF]);
+    };
+
+    // ========== WiFi 控件 ==========
+    // WiFi 命令按钮
+    document.getElementById('wifiSetSsidBtn').onclick = () => {
+      const ssid = document.getElementById('wifiSsidInput').value;
+      if (!ssid) { addMessage('error', '请输入 SSID'); return; }
+      sendCommandStr(PROTO_COMMANDS.WIFI_SET_SSID, ssid);
+    };
+
+    document.getElementById('wifiSetPwdBtn').onclick = () => {
+      const pwd = document.getElementById('wifiPwdInput').value;
+      if (!pwd) { addMessage('error', '请输入密码'); return; }
+      sendCommandStr(PROTO_COMMANDS.WIFI_SET_PWD, pwd);
+    };
+
+    document.getElementById('wifiStatusBtn').onclick = () => sendCommand(PROTO_COMMANDS.WIFI_GET_STATUS);
+    document.getElementById('wifiConnectBtn').onclick = () => sendCommand(PROTO_COMMANDS.WIFI_CONNECT);
+    document.getElementById('wifiDisconnectBtn').onclick = () => sendCommand(PROTO_COMMANDS.WIFI_DISCONNECT);
+
+    function setWifiEnabled(enabled) {
+      document.getElementById('wifiSsidInput').disabled = !enabled;
+      document.getElementById('wifiPwdInput').disabled = !enabled;
+      document.getElementById('wifiSetSsidBtn').disabled = !enabled;
+      document.getElementById('wifiSetPwdBtn').disabled = !enabled;
+      document.getElementById('wifiStatusBtn').disabled = !enabled;
+      document.getElementById('wifiConnectBtn').disabled = !enabled;
+      document.getElementById('wifiDisconnectBtn').disabled = !enabled;
+    }
+
+    document.getElementById('clearMsgBtn').onclick = () => {
+      messageCount = 0;
+      msgCountEl.textContent = '0 条消息';
+      messageArea.innerHTML = '<div class="empty-hint">暂无消息，请先连接设备</div>';
+    };
+
+    function addMessage(type, text) {
+      const emptyHint = messageArea.querySelector('.empty-hint');
+      if (emptyHint) emptyHint.remove();
+      messageCount++;
+      msgCountEl.textContent = `${messageCount} 条消息`;
+      const time = new Date().toLocaleTimeString('zh-CN', { hour12: false });
+      const div = document.createElement('div');
+      div.className = 'msg-line';
+      let prefix = { sent: '⬆ 发送', received: '⬇ 接收', system: 'ℹ 系统', error: '✖ 错误' }[type] || '';
+      div.innerHTML = `<span class="msg-time">[${time}]</span> <span class="msg-${type}">${prefix}: ${esc(text)}</span>`;
+      messageArea.appendChild(div);
+      messageArea.scrollTop = messageArea.scrollHeight;
+    }
+
+    function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+    // ========== 图片抖动与取模 ==========
+    const imageInput = document.getElementById('imageInput');
+    const convertBtn = document.getElementById('convertBtn');
+    const viewFullBtn = document.getElementById('viewFullBtn');
+    const canvasOrig = document.getElementById('canvasOriginal');
+    const canvasDith = document.getElementById('canvasDithered');
+    const ditheredPreview = document.getElementById('ditheredPreview');
+    const imagePreview = document.getElementById('imagePreview');
+    const modDataPreview = document.getElementById('modDataPreview');
+    const modDataInfo = document.getElementById('modDataInfo');
+    const copyDataBtn = document.getElementById('copyDataBtn');
+    let loadedImage = null;
+
+    imageInput.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const img = new Image();
+      img.onload = () => {
+        loadedImage = img;
+        convertBtn.disabled = false;
+        // 设置目标分辨率为原图尺寸并启用
+        document.getElementById('targetWidth').value = img.width;
+        document.getElementById('targetHeight').value = img.height;
+        document.getElementById('targetWidth').disabled = false;
+        document.getElementById('targetHeight').disabled = false;
+        // 显示原始尺寸
+        origSizeInfo.textContent = `原始尺寸: ${img.width} × ${img.height} px`;
+        // 显示原图
+        const ctx = canvasOrig.getContext('2d');
+        canvasOrig.width = img.width;
+        canvasOrig.height = img.height;
+        ctx.drawImage(img, 0, 0);
+        imagePreview.style.display = 'block';
+        modDataPreview.textContent = '点击「转换」按钮生成取模数据';
+        modDataInfo.textContent = '';
+      };
+      img.src = URL.createObjectURL(file);
+    });
+
+    convertBtn.addEventListener('click', () => {
+      if (!loadedImage) return;
+      const w = parseInt(document.getElementById('targetWidth').value);
+      const h = parseInt(document.getElementById('targetHeight').value);
+      if (!w || !h) return;
+      const palette = document.getElementById('paletteSelect').value;
+      const tempCanvas = document.createElement('canvas');
+      tempCanvas.width = w; tempCanvas.height = h;
+      const tempCtx = tempCanvas.getContext('2d');
+      tempCtx.drawImage(loadedImage, 0, 0, w, h);
+      const imageData = tempCtx.getImageData(0, 0, w, h);
+      const dithered = floydSteinbergDither(imageData, palette);
+      // 画到隐藏 canvas（原始分辨率）
+      canvasDith.width = w; canvasDith.height = h;
+      canvasDith.getContext('2d').putImageData(dithered, 0, 0);
+      // 转成图片 URL 显示，浏览器默认平滑缩放
+      ditheredPreview.src = canvasDith.toDataURL('image/png');
+      ditheredPreview.style.display = 'block';
+      // 启用查看大图按钮
+      viewFullBtn.style.display = '';
+      viewFullBtn.disabled = false;
+      const modResult = generateModData(dithered, palette);
+      modDataPreview.textContent = modResult.hex;
+      modDataInfo.textContent = `分辨率: ${w}×${h} | 数据大小: ${modResult.bytes.length} 字节 | 色板: ${getPaletteName(palette)}`;
+      copyDataBtn.onclick = () => {
+        navigator.clipboard.writeText(modResult.hex).then(() => {
+          copyDataBtn.textContent = '已复制 ✓';
+          setTimeout(() => copyDataBtn.textContent = '复制数据', 1500);
+        });
+      };
+    });
+
+    // 查看大图：弹出新窗口显示
+    viewFullBtn.addEventListener('click', () => {
+      if (!canvasDith.width) return;
+      const dataUrl = canvasDith.toDataURL('image/png');
+      const w = canvasDith.width, h = canvasDith.height;
+      const win = window.open('', '_blank', `width=${Math.min(w + 40, screen.width)},height=${Math.min(h + 80, screen.height)}`);
+      if (!win) return;
+      win.document.write(`<!DOCTYPE html><html><head><title>抖动预览 ${w}×${h}</title><style>*{margin:0;padding:0;box-sizing:border-box}body{background:#1a1a1a;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}img{display:block}</style></head><body><img src="${dataUrl}"></body></html>`);
+      win.document.close();
+    });
+
+    function getPaletteName(p) { return { bw1:'黑白 1bit', bwr1:'黑白红 1bit', bwyr2:'黑白黄红 2bit' }[p] || p; }
+
+    function floydSteinbergDither(imageData, palette) {
+      const w = imageData.width, h = imageData.height;
+      const data = new Float32Array(imageData.data.length);
+      for (let i = 0; i < data.length; i++) data[i] = imageData.data[i];
+      const pal = getPaletteColors(palette);
+      for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+          const idx = (y * w + x) * 4;
+          const oR = data[idx], oG = data[idx+1], oB = data[idx+2];
+          const n = findNearest(oR, oG, oB, pal);
+          data[idx] = n[0]; data[idx+1] = n[1]; data[idx+2] = n[2]; data[idx+3] = 255;
+          const eR = oR - n[0], eG = oG - n[1], eB = oB - n[2];
+          diffuse(data, w, h, x+1, y, eR, eG, eB, 7/16);
+          diffuse(data, w, h, x-1, y+1, eR, eG, eB, 3/16);
+          diffuse(data, w, h, x, y+1, eR, eG, eB, 5/16);
+          diffuse(data, w, h, x+1, y+1, eR, eG, eB, 1/16);
+        }
+      }
+      const result = new ImageData(w, h);
+      for (let i = 0; i < data.length; i++) result.data[i] = Math.round(data[i]);
+      return result;
+    }
+    function diffuse(d, w, h, x, y, eR, eG, eB, f) {
+      if (x < 0 || x >= w || y < 0 || y >= h) return;
+      const i = (y * w + x) * 4;
+      d[i] = Math.max(0, Math.min(255, d[i] + eR * f));
+      d[i+1] = Math.max(0, Math.min(255, d[i+1] + eG * f));
+      d[i+2] = Math.max(0, Math.min(255, d[i+2] + eB * f));
+    }
+    function findNearest(r, g, b, pal) {
+      let min = Infinity, best = pal[0];
+      for (const c of pal) { const d = (r-c[0])**2+(g-c[1])**2+(b-c[2])**2; if (d < min) { min = d; best = c; } }
+      return best;
+    }
+    function getPaletteColors(p) {
+      if (p === 'bw1') return [[0,0,0],[255,255,255]];
+      if (p === 'bwr1') return [[0,0,0],[255,255,255],[255,0,0]];
+      if (p === 'bwyr2') return [[0,0,0],[255,255,255],[255,255,0],[255,0,0]];
+      return [[0,0,0],[255,255,255]];
+    }
+
+    function generateModData(imageData, palette) {
+      const w = imageData.width, h = imageData.height, data = imageData.data, bytes = [];
+      // FPC朝右：列从右到左扫描 (x = w-1 → 0)，行从上到下 (y = 0 → h-1)
+      if (palette === 'bw1') {
+        const colGroups = Math.ceil(h / 8);
+        for (let x = 0; x <w; x++) for (let yg = 0; yg < colGroups; yg++) {
+          let byte = 0;
+          for (let bit = 0; bit < 8; bit++) {
+            const y = yg * 8 + bit;
+            if (y < h) { const i = (y * w + x) * 4; if (data[i] * .299 + data[i + 1] * .587 + data[i + 2] * .114 > 128) byte |= (1 << (7 - bit)); }
+          }
+          bytes.push(byte);
+        }
+      } else if (palette === 'bwr1') {
+        const colGroups = Math.ceil(h / 8);
+        for (let x = 0; x <w; x++) for (let yg = 0; yg < colGroups; yg++) {
+          let byte = 0;
+          for (let bit = 0; bit < 8; bit++) {
+            const y = yg * 8 + bit;
+            if (y < h) { const i = (y * w + x) * 4; const r = data[i], g = data[i + 1], b = data[i + 2]; const isR = r > 200 && g < 80 && b < 80; if (!isR && r * .299 + g * .587 + b * .114 > 128) byte |= (1 << (7 - bit)); }
+          }
+          bytes.push(byte);
+        }
+        for (let x = 0; x <w; x++) for (let yg = 0; yg < colGroups; yg++) {
+          let byte = 0;
+          for (let bit = 0; bit < 8; bit++) {
+            const y = yg * 8 + bit;
+            if (y < h) { const i = (y * w + x) * 4; if (data[i] > 200 && data[i + 1] < 80 && data[i + 2] < 80) byte |= (1 << (7 - bit)); }
+          }
+          bytes.push(byte);
+        }
+      } else if (palette === 'bwyr2') {
+        const colGroups = Math.ceil(h / 4);
+        for (let x = 0; x <w; x++) for (let yg = 0; yg < colGroups; yg++) {
+          let byte = 0;
+          for (let px = 0; px < 4; px++) {
+            const y = yg * 4 + px;
+            if (y < h) { const i = (y * w + x) * 4; const r = data[i], g = data[i + 1], b = data[i + 2]; let v = 0; if (r > 200 && g < 80 && b < 80) v = 3; else if (r > 200 && g > 200 && b < 80) v = 2; else if (r * .299 + g * .587 + b * .114 > 128) v = 1; byte |= (v << ((3 - px) * 2)); }
+          }
+          bytes.push(byte);
+        }
+      }
+      const hex = bytes.map(b => '0x' + b.toString(16).padStart(2, '0').toUpperCase()).join(', ');
+      return { bytes, hex };
+    }
+
+    // ========== 初始化 ==========
+    // 生成图片下拉选项（显示1-16，实际id 0-15）
+    const imgFlashIdSelect = document.getElementById('imgFlashIdSelect');
+    for (let i = 0; i < 16; i++) {
+      const opt = document.createElement('option');
+      opt.value = i; opt.textContent = `图片 ${i + 1}`;
+      imgFlashIdSelect.appendChild(opt);
+    }
+
+    // 转换后启用发送按钮
+    let lastModResult = null;
+    const sendImgFlashBtn = document.getElementById('sendImgFlashBtn');
+    const sendImgProgress = document.getElementById('sendImgProgress');
+    const origConvertClick = convertBtn.onclick;
+    convertBtn.addEventListener('click', () => {
+      // 转换完成后启用发送
+      setTimeout(() => {
+        if (canvasDith.width && canvasDith.height) {
+          const w = canvasDith.width, h = canvasDith.height;
+          const tmp = document.createElement('canvas');
+          tmp.width = w; tmp.height = h;
+          tmp.getContext('2d').drawImage(canvasDith, 0, 0);
+          const imgData = tmp.getContext('2d').getImageData(0, 0, w, h);
+          const palette = document.getElementById('paletteSelect').value;
+          lastModResult = generateModData(imgData, palette);
+          sendImgFlashBtn.disabled = false;
+          document.getElementById('showImgBtn').disabled = false;
+          imgFlashIdSelect.disabled = false;
+          sendImgProgress.textContent = `数据就绪: ${lastModResult.bytes.length} 字节`;
+        }
+      }, 100);
+    });
+
+    // 发送图片到 Flash
+    const FLASH_IMG_SIZE = 2 * 1024 * 1024; // 2MB per image
+    const CHUNK_SIZE = 1024 - 6; // PROTO_MAX_DATA_LEN(4096) - 4字节地址
+
+    sendImgFlashBtn.onclick = async () => {
+      if (!connected || !lastModResult) return;
+      const imgId = parseInt(imgFlashIdSelect.value, 10);
+      const baseAddr = imgId * FLASH_IMG_SIZE;
+      const totalBytes = lastModResult.bytes;
+      const totalChunks = Math.ceil(totalBytes.length / CHUNK_SIZE);
+
+      sendImgFlashBtn.disabled = true;
+      addMessage('system', `[Flash写入] 开始: 图片 ${imgId + 1}, 基址 0x${baseAddr.toString(16).toUpperCase()}, 数据 ${totalBytes.length} 字节, ${totalChunks} 个分包`);
+
+      try {
+        // 擦除图片数据实际大小的 Flash 区域
+        sendImgProgress.textContent = '擦除 Flash...';
+        const eraseLen = totalBytes.length;
+        const eraseData = [
+          (baseAddr >> 24) & 0xFF, (baseAddr >> 16) & 0xFF, (baseAddr >> 8) & 0xFF, baseAddr & 0xFF,
+          (eraseLen >> 24) & 0xFF, (eraseLen >> 16) & 0xFF, (eraseLen >> 8) & 0xFF, eraseLen & 0xFF
+        ];
+        const eraseResp = await sendCommandWait(PROTO_COMMANDS.FLASH_ERASE, eraseData, 30000);
+        if ((eraseResp.cmd & 0x80) !== 0) {
+          throw new Error('擦除失败');
+        }
+        addMessage('received', '[Flash擦除] OK');
+        sendImgProgress.textContent = '擦除完成，开始写入...';
+
+        // 分块写入
+        for (let offset = 0; offset < totalBytes.length; offset += CHUNK_SIZE) {
+          const chunk = totalBytes.slice(offset, offset + CHUNK_SIZE);
+          const addr = baseAddr + offset;
+          const addrBytes = [(addr >> 24) & 0xFF, (addr >> 16) & 0xFF, (addr >> 8) & 0xFF, addr & 0xFF];
+          const writeData = [...addrBytes, ...chunk];
+
+          const chunkIdx = Math.floor(offset / CHUNK_SIZE) + 1;
+          sendImgProgress.textContent = `写入中... ${chunkIdx}/${totalChunks} (${Math.round(offset / totalBytes.length * 100)}%)`;
+
+          const writeResp = await sendCommandWait(PROTO_COMMANDS.FLASH_WRITE, writeData, 10000);
+          if ((writeResp.cmd & 0x80) !== 0) {
+            throw new Error(`写入失败: 包 ${chunkIdx}/${totalChunks}`);
+          }
+        }
+
+        sendImgProgress.textContent = `完成! 共写入 ${totalBytes.length} 字节`;
+        addMessage('system', `[Flash写入] 完成: 图片 ${imgId + 1}, ${totalBytes.length} 字节`);
+      } catch (err) {
+        sendImgProgress.textContent = `失败: ${err.message}`;
+        addMessage('error', `[Flash写入] ${err.message}`);
+      }
+      sendImgFlashBtn.disabled = false;
+    };
+
+    // ========== 卡片折叠 ==========
+    document.querySelectorAll('.card-header').forEach(header => {
+      header.addEventListener('click', () => {
+        header.parentElement.classList.toggle('collapsed');
+      });
+    });
+  </script>
+</body>
+</html>
