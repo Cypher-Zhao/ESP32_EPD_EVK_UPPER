@@ -253,11 +253,10 @@
             </div>
             <div class="form-group" style="flex:1">
               <label>路径</label>
-              <input type="text" id="wsPathInput" placeholder="/" value="/" maxlength="64">
+              <input type="text" id="wsPathInput" placeholder="/ws" value="/ws" maxlength="64">
+              <span class="hint"></span>
             </div>
-          </div>
-          <div class="form-row" style="margin-top:8px">
-            <div style="display:flex;gap:8px">
+            <div style="display:flex;gap:8px;padding-bottom:22px">
               <button class="btn btn-primary" id="wsConnectBtn">连接</button>
               <button class="btn btn-danger" id="wsDisconnectBtn" disabled>断开</button>
             </div>
