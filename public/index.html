@@ -302,7 +302,6 @@
             </div>
             <div style="display:flex;gap:8px;align-items:flex-end;padding-bottom:0">
               <button class="btn btn-primary" id="serialConnectBtn">连接</button>
-              <button class="btn btn-danger" id="serialDisconnectBtn" disabled>断开</button>
             </div>
           </div>
           <!-- WiFi 配置 -->
@@ -971,13 +970,6 @@
       }
     };
 
-    document.getElementById('serialDisconnectBtn').onclick = async () => {
-      await closeSerialPort();
-      onDisconnected('已断开串口连接');
-      document.getElementById('serialStatus').textContent = '已断开';
-      document.getElementById('serialStatus').style.color = 'var(--text-sec)';
-    };
-
     // 监听串口连接/断开事件
     if (serialSupported) {
       navigator.serial.addEventListener('connect', (e) => {
@@ -1118,8 +1110,6 @@
         document.getElementById('serialConnectBtn').textContent = '断开';
         document.getElementById('serialConnectBtn').classList.remove('btn-primary');
         document.getElementById('serialConnectBtn').classList.add('btn-danger');
-        document.getElementById('serialDisconnectBtn').disabled = true;
-        document.getElementById('serialDisconnectBtn').style.display = 'none';
         document.getElementById('baudRateSelect').disabled = true;
         document.getElementById('selectDeviceBtn').disabled = true;
       }
@@ -1160,8 +1150,6 @@
       document.getElementById('serialConnectBtn').textContent = '连接';
       document.getElementById('serialConnectBtn').classList.remove('btn-danger');
       document.getElementById('serialConnectBtn').classList.add('btn-primary');
-      document.getElementById('serialDisconnectBtn').disabled = true;
-      document.getElementById('serialDisconnectBtn').style.display = '';
       document.getElementById('baudRateSelect').disabled = false;
       document.getElementById('selectDeviceBtn').disabled = false;
 
