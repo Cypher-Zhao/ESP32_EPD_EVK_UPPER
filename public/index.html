@@ -212,33 +212,12 @@
       <div class="card-header"><span>🔌</span> 设备连接 <span class="chevron">▼</span></div>
       <div class="card-body">
         <div class="tabs">
-          <div class="tab active" data-tab="tcp">TCP 连接</div>
-          <div class="tab" data-tab="ws">WebSocket</div>
+          <div class="tab active" data-tab="ws">WebSocket</div>
           <div class="tab" data-tab="serial">串口连接</div>
         </div>
 
-        <!-- TCP -->
-        <div class="tab-content active" id="tab-tcp">
-          <div class="form-row">
-            <div class="form-group" style="flex:2">
-              <label>IP 地址</label>
-              <input type="text" id="ipInput" placeholder="例如: 192.168.10.33" maxlength="45">
-              <span class="hint" id="ipHint"></span>
-            </div>
-            <div class="form-group" style="flex:1">
-              <label>端口</label>
-              <input type="text" id="portInput" placeholder="例如: 8080" maxlength="5">
-              <span class="hint" id="portHint"></span>
-            </div>
-            <div style="display:flex;gap:8px;padding-bottom:22px">
-              <button class="btn btn-primary" id="tcpConnectBtn">连接</button>
-              <button class="btn btn-danger" id="tcpDisconnectBtn" disabled>断开</button>
-            </div>
-          </div>
-        </div>
-
         <!-- WebSocket -->
-        <div class="tab-content" id="tab-ws">
+        <div class="tab-content active" id="tab-ws">
           <div style="padding:8px 0 12px;font-size:13px;color:var(--text-sec)">直接通过 WebSocket 连接 ESP32（ESP32 需开启 WebSocket Server）</div>
           <div class="form-row">
             <div class="form-group" style="flex:2">
@@ -441,10 +420,6 @@
 
   <script>
     // ========== 元素引用 ==========
-    const ipInput = document.getElementById('ipInput');
-    const portInput = document.getElementById('portInput');
-    const ipHint = document.getElementById('ipHint');
-    const portHint = document.getElementById('portHint');
     const statusBar = document.getElementById('statusBar');
     const statusText = document.getElementById('statusText');
     const modeBadge = document.getElementById('modeBadge');
@@ -454,9 +429,8 @@
     const msgCountEl = document.getElementById('msgCount');
     const origSizeInfo = document.getElementById('origSizeInfo');
 
-    let ws = null;
     let connected = false;
-    let currentMode = null; // 'tcp' | 'serial-web'
+    let currentMode = null; // 'ws' | 'serial-web'
     let messageCount = 0;
     let rxBuffer = []; // 接收缓冲区，处理粘包
     let protoPending = null; // 等待协议响应的回调
@@ -535,57 +509,6 @@
       return await sendProtoFrameWait(command.cmd, cmdData, timeout);
     }
 
-    // ========== WebSocket 代理（TCP 模式用）==========
-    function connectWS() {
-      // GitHub Pages 等静态托管时无服务端，跳过代理连接
-      if (location.protocol === 'file:') return;
-      const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-      ws = new WebSocket(`${proto}//${location.host}`);
-      ws.onopen = () => console.log('WS proxy connected');
-      ws.onmessage = (e) => handleMsg(JSON.parse(e.data));
-      ws.onclose = () => {
-        ws = null;
-        // 仅在 TCP 模式下自动重连
-        if (currentMode === 'tcp') {
-          setTimeout(connectWS, 3000);
-        } else if (!currentMode) {
-          setTimeout(connectWS, 5000);
-        }
-      };
-      ws.onerror = () => {}; // 静默处理，GitHub Pages 上无代理是正常的
-    }
-
-    function handleMsg(msg) {
-      switch (msg.type) {
-        case 'tcp-connected':
-          onConnected('tcp', `已连接到 ${msg.host}:${msg.port}`, `TCP ${msg.host}:${msg.port}`);
-          break;
-        case 'tcp-disconnected':
-          onDisconnected(msg.message);
-          break;
-        case 'sent':
-          addMessage('sent', msg.data);
-          break;
-        case 'proto-sent':
-          addMessage('system', `[协议] 已发送: ${msg.hex}`);
-          break;
-        case 'received': {
-          // 将收到的字节追加到接收缓冲区
-          if (msg.bytes) rxBuffer.push(...msg.bytes);
-          // 处理接收数据
-          processReceivedData();
-          break;
-        }
-        case 'error':
-          addMessage('error', msg.message);
-          if (msg.message.includes('连接') || msg.message.includes('超时') || msg.message.includes('拒绝') || msg.message.includes('串口') || msg.message.includes('未连接')) {
-            // 仅在 TCP 模式下响应服务端错误消息
-            if (currentMode === 'tcp') onDisconnected(msg.message);
-          }
-          break;
-      }
-    }
-
     // ========== 标签切换 (含互斥) ==========
     document.querySelectorAll('.tab').forEach(tab => {
       tab.addEventListener('click', () => {
@@ -621,29 +544,6 @@
       if (n < 1 || n > 65535) return '端口范围: 1-65535';
       return '';
     }
-    ipInput.addEventListener('input', () => { const e = validateIP(ipInput.value.trim()); ipHint.textContent = e; ipInput.classList.toggle('invalid', !!e); });
-    portInput.addEventListener('input', () => { const e = validatePort(portInput.value.trim()); portHint.textContent = e; portInput.classList.toggle('invalid', !!e); });
-
-    // ========== TCP ==========
-    document.getElementById('tcpConnectBtn').onclick = () => {
-      const ip = ipInput.value.trim(), port = portInput.value.trim();
-      const ie = validateIP(ip), pe = validatePort(port);
-      ipHint.textContent = ie; portHint.textContent = pe;
-      ipInput.classList.toggle('invalid', !!ie); portInput.classList.toggle('invalid', !!pe);
-      if (ie || pe) return;
-      if (!ws || ws.readyState !== 1) {
-        addMessage('error', 'TCP 代理服务未连接（请确保 server.js 正在运行，或使用 WebSocket 模式直连）');
-        return;
-      }
-      setStatus('connecting', `正在连接 ${ip}:${port} ...`);
-      document.getElementById('tcpConnectBtn').disabled = true;
-      ws.send(JSON.stringify({ type: 'tcp-connect', host: ip, port }));
-    };
-    document.getElementById('tcpDisconnectBtn').onclick = () => {
-      if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'tcp-disconnect' }));
-    };
-    ipInput.addEventListener('keydown', e => { if (e.key === 'Enter') portInput.focus(); });
-    portInput.addEventListener('keydown', e => { if (e.key === 'Enter') document.getElementById('tcpConnectBtn').click(); });
 
     // ========== WebSocket Server 直连 ==========
     let wsDevice = null; // 直连 ESP32 的 WebSocket
@@ -685,12 +585,8 @@
             rxBuffer.push(...Array.from(new Uint8Array(e.data)));
             processReceivedData();
           } else if (typeof e.data === 'string') {
-            // 文本帧 → 尝试 JSON 解析
-            try {
-              handleMsg(JSON.parse(e.data));
-            } catch {
-              addMessage('received', e.data);
-            }
+            // 文本帧 → 直接显示
+            addMessage('received', e.data);
           }
         };
 
@@ -1057,11 +953,7 @@
       // 锁定标签
       setTabLocked(true);
 
-      if (mode === 'tcp') {
-        document.getElementById('tcpConnectBtn').disabled = true;
-        document.getElementById('tcpDisconnectBtn').disabled = false;
-        ipInput.disabled = true; portInput.disabled = true;
-      } else if (mode === 'ws') {
+      if (mode === 'ws') {
         document.getElementById('wsConnectBtn').disabled = true;
         document.getElementById('wsDisconnectBtn').disabled = false;
         wsIpInput.disabled = true; wsPortInput.disabled = true;
@@ -1101,10 +993,6 @@
       setTabLocked(false);
 
       // 恢复所有按钮
-      document.getElementById('tcpConnectBtn').disabled = false;
-      document.getElementById('tcpDisconnectBtn').disabled = true;
-      ipInput.disabled = false; portInput.disabled = false;
-
       document.getElementById('wsConnectBtn').disabled = false;
       document.getElementById('wsDisconnectBtn').disabled = true;
       wsIpInput.disabled = false; wsPortInput.disabled = false;
@@ -1142,11 +1030,6 @@
           const encoder = new TextEncoder();
           wsDevice.send(encoder.encode(data));
           addMessage('sent', data);
-          sendInput.value = '';
-          sendInput.focus();
-        } else if (ws && ws.readyState === 1) {
-          // TCP 模式：通过服务器代理发送
-          ws.send(JSON.stringify({ type: 'send', data }));
           sendInput.value = '';
           sendInput.focus();
         }
@@ -1207,9 +1090,6 @@
         } else if (currentMode === 'ws' && wsDevice && wsDevice.readyState === 1) {
           // WebSocket 直连模式：直接发送二进制帧到 ESP32
           wsDevice.send(new Uint8Array(frame));
-        } else if (ws && ws.readyState === 1) {
-          // TCP 模式：通过服务器代理发送
-          ws.send(JSON.stringify({ type: 'proto-send', frame }));
         }
       } catch (err) {
         addMessage('error', `协议发送失败: ${err.message}`);
@@ -1238,9 +1118,6 @@
           } else if (currentMode === 'ws' && wsDevice && wsDevice.readyState === 1) {
             // WebSocket 直连模式：直接发送二进制帧到 ESP32
             wsDevice.send(new Uint8Array(frame));
-          } else if (ws && ws.readyState === 1) {
-            // TCP 模式：通过服务器代理发送
-            ws.send(JSON.stringify({ type: 'proto-send', frame }));
           } else {
             clearTimeout(timer);
             protoPending = null;
@@ -1579,8 +1456,6 @@
       }
       sendImgFlashBtn.disabled = false;
     };
-
-    connectWS();
 
     // ========== 卡片折叠 ==========
     document.querySelectorAll('.card-header').forEach(header => {
