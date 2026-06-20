@@ -210,6 +210,7 @@
       .header { flex-direction: column; gap: 10px; text-align: center; }
       .header h1 { font-size: 18px; }
       .form-row { flex-direction: column; }
+      .form-row > * { width: 100%; }
       .serial-row { flex-direction: row !important; }
       .serial-row .form-group { min-width: 0; }
       .form-group { width: 100%; }
@@ -378,40 +379,44 @@
           <div id="origSizeInfo" style="font-size:13px;color:var(--text-sec);align-self:flex-end;padding-bottom:8px"></div>
         </div>
         <div class="form-row" style="margin-bottom:12px">
-          <div class="form-group">
-            <label>目标宽度 (px)</label>
-            <input type="number" id="targetWidth" disabled min="1" style="width:100px">
+          <div style="display:flex;gap:12px;align-items:flex-end;flex:1">
+            <div class="form-group" style="flex:1;min-width:0">
+              <label>目标宽度 (px)</label>
+              <input type="number" id="targetWidth" disabled min="1">
+            </div>
+            <div class="form-group" style="flex:1;min-width:0">
+              <label>目标高度 (px)</label>
+              <input type="number" id="targetHeight" disabled min="1">
+            </div>
           </div>
-          <div class="form-group">
-            <label>目标高度 (px)</label>
-            <input type="number" id="targetHeight" disabled min="1" style="width:100px">
-          </div>
-          <div class="form-group">
-            <label>抖动色板</label>
-            <select id="paletteSelect">
-              <option value="bw1">黑白 1bit</option>
-              <option value="bwr1">黑白红 1bit</option>
-              <option value="bwyr2">黑白黄红 2bit</option>
-              <option value="bwrgby4">黑白黄红蓝绿 3bit</option>
-            </select>
-          </div>
-          <div class="form-group">
-            <label>抖动算法</label>
-            <select id="ditherAlgo">
-              <option value="floydSteinberg">Floyd-Steinberg</option>
-              <option value="atkinson">Atkinson</option>
-              <option value="jarvis">Jarvis-Judice-Ninke</option>
-              <option value="stucki">Stucki</option>
-              <option value="burkes">Burkes</option>
-              <option value="sierra">Sierra</option>
-              <option value="sierraLite">Sierra Lite</option>
-              <option value="sierra2">Sierra 2-Row</option>
-              <option value="ordered2">Ordered 2×2</option>
-              <option value="ordered4">Ordered 4×4</option>
-              <option value="ordered8">Ordered 8×8</option>
-              <option value="threshold">Threshold</option>
-              <option value="random">Random</option>
-            </select>
+          <div style="display:flex;gap:12px;align-items:flex-end;flex:1">
+            <div class="form-group" style="flex:1;min-width:0">
+              <label>抖动色板</label>
+              <select id="paletteSelect">
+                <option value="bw1">黑白 1bit</option>
+                <option value="bwr1">黑白红 1bit</option>
+                <option value="bwyr2">黑白黄红 2bit</option>
+                <option value="bwrgby4">黑白黄红蓝绿 3bit</option>
+              </select>
+            </div>
+            <div class="form-group" style="flex:1;min-width:0">
+              <label>抖动算法</label>
+              <select id="ditherAlgo">
+                <option value="floydSteinberg">Floyd-Steinberg</option>
+                <option value="atkinson">Atkinson</option>
+                <option value="jarvis">Jarvis-Judice-Ninke</option>
+                <option value="stucki">Stucki</option>
+                <option value="burkes">Burkes</option>
+                <option value="sierra">Sierra</option>
+                <option value="sierraLite">Sierra Lite</option>
+                <option value="sierra2">Sierra 2-Row</option>
+                <option value="ordered2">Ordered 2×2</option>
+                <option value="ordered4">Ordered 4×4</option>
+                <option value="ordered8">Ordered 8×8</option>
+                <option value="threshold">Threshold</option>
+                <option value="random">Random</option>
+              </select>
+            </div>
           </div>
 
         </div>
