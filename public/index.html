@@ -294,7 +294,7 @@
             </div>
             <div class="form-row" style="margin-bottom:10px">
               <div style="display:flex;gap:8px;flex-wrap:wrap">
-                <button class="btn btn-outline" id="wifiStatusBtn" disabled>获取状态</button>
+                <button class="btn btn-outline" id="wifiStatusBtn" disabled>获取 WiFi 状态</button>
                 <button class="btn btn-send" id="wifiConnectBtn" disabled>连接 WiFi</button>
                 <button class="btn btn-danger" id="wifiDisconnectBtn" disabled>断开 WiFi</button>
               </div>
@@ -334,8 +334,8 @@
           <button class="btn btn-outline" id="protoBtn00" disabled>心跳</button>
           <button class="btn btn-outline" id="protoBtn10" disabled>全屏刷新(白)</button>
           <button class="btn btn-outline" id="protoBtn10black" disabled>全屏刷新(黑)</button>
-          <button class="btn btn-outline" id="protoBtn21" disabled>获取版本</button>
-          <button class="btn btn-outline" id="protoBtn05" disabled>获取状态</button>
+          <button class="btn btn-outline" id="protoBtn21" disabled>获取IC版本</button>
+          <button class="btn btn-outline" id="protoBtn05" disabled>展示状态</button>
         </div>
       </div>
     </div>
@@ -524,15 +524,6 @@
           break;
         case 'tcp-disconnected':
           onDisconnected(msg.message);
-          break;
-        case 'serial-connected':
-          onConnected('serial', `已连接串口 ${msg.path} @ ${msg.baudRate}`, `串口 ${msg.path}`);
-          break;
-        case 'serial-disconnected':
-          onDisconnected(msg.message);
-          break;
-        case 'serial-list':
-          populateSerialPorts(msg.ports);
           break;
         case 'sent':
           addMessage('sent', msg.data);
@@ -818,10 +809,6 @@
       document.getElementById('serialStatus').textContent = '已断开';
       document.getElementById('serialStatus').style.color = 'var(--text-sec)';
     };
-
-    function populateSerialPorts(ports) {
-      // Web Serial API 不需要预填充列表
-    }
 
     // 监听串口连接/断开事件
     if (serialSupported) {

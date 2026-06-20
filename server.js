@@ -3,8 +3,6 @@ const http = require('http');
 const { WebSocketServer } = require('ws');
 const net = require('net');
 const path = require('path');
-const { SerialPort } = require('serialport');
-const { ReadlineParser } = require('@serialport/parser-readline');
 
 const app = express();
 const server = http.createServer(app);
@@ -17,7 +15,7 @@ const clientState = new Map();
 
 wss.on('connection', (ws) => {
   const id = Date.now().toString(36) + Math.random().toString(36).slice(2);
-  const state = { tcpClient: null, serialPort: null, mode: null };
+  const state = { tcpClient: null, mode: null };
   clientState.set(id, state);
   console.log(`[WS] 新连接: ${id}`);
 
@@ -30,9 +28,6 @@ wss.on('connection', (ws) => {
     switch (msg.type) {
       case 'tcp-connect':       return handleTcpConnect(ws, msg, state);
       case 'tcp-disconnect':    return handleTcpDisconnect(ws, state);
-      case 'serial-list':       return handleSerialList(ws);
-      case 'serial-connect':    return handleSerialConnect(ws, msg, state);
-      case 'serial-disconnect': return handleSerialDisconnect(ws, state);
       case 'send':              return handleSend(ws, msg, state);
       case 'proto-send':        return handleProtoSend(ws, msg, state);
       default: send(ws, { type: 'error', message: `未知消息类型: ${msg.type}` });
@@ -113,77 +108,11 @@ function handleTcpDisconnect(ws, state) {
   }
 }
 
-// ==================== Serial ====================
-async function handleSerialList(ws) {
-  try {
-    const ports = await SerialPort.list();
-    const list = ports.map(p => ({
-      path: p.path,
-      manufacturer: p.manufacturer || '',
-      vendorId: p.vendorId || '',
-      productId: p.productId || ''
-    }));
-    send(ws, { type: 'serial-list', ports: list });
-  } catch (err) {
-    send(ws, { type: 'error', message: `获取串口列表失败: ${err.message}` });
-  }
-}
-
-function handleSerialConnect(ws, msg, state) {
-  const { path: portPath, baudRate } = msg;
-  if (!portPath) return send(ws, { type: 'error', message: '请选择串口' });
-  const baud = parseInt(baudRate, 10) || 115200;
-
-  cleanup(state);
-
-  console.log(`[Serial] 正在连接 ${portPath} @ ${baud}`);
-  const port = new SerialPort({ path: portPath, baudRate: baud });
-
-  port.on('open', () => {
-    console.log(`[Serial] 已连接 ${portPath} @ ${baud}`);
-    state.serialPort = port;
-    state.mode = 'serial';
-    send(ws, { type: 'serial-connected', message: `已连接串口 ${portPath} @ ${baud}`, path: portPath, baudRate: baud });
-  });
-
-  port.on('data', (data) => {
-    send(ws, { type: 'received', data: data.toString('utf-8'), bytes: Array.from(data) });
-  });
-
-  port.on('error', (err) => {
-    console.error(`[Serial] 错误: ${err.message}`);
-    send(ws, { type: 'error', message: `串口错误: ${err.message}` });
-    state.serialPort = null;
-    state.mode = null;
-  });
-
-  port.on('close', () => {
-    console.log(`[Serial] 连接关闭 ${portPath}`);
-    state.serialPort = null;
-    state.mode = null;
-    send(ws, { type: 'serial-disconnected', message: '串口已断开' });
-  });
-}
-
-function handleSerialDisconnect(ws, state) {
-  if (state.serialPort) {
-    state.serialPort.close();
-    state.serialPort = null;
-    state.mode = null;
-    send(ws, { type: 'serial-disconnected', message: '已断开串口' });
-  }
-}
-
 // ==================== 通用发送 ====================
 function handleSend(ws, msg, state) {
   const data = msg.data || '';
   if (state.mode === 'tcp' && state.tcpClient && !state.tcpClient.destroyed) {
     state.tcpClient.write(data, (err) => {
-      if (err) send(ws, { type: 'error', message: `发送失败: ${err.message}` });
-      else send(ws, { type: 'sent', data });
-    });
-  } else if (state.mode === 'serial' && state.serialPort && state.serialPort.isOpen) {
-    state.serialPort.write(data, (err) => {
       if (err) send(ws, { type: 'error', message: `发送失败: ${err.message}` });
       else send(ws, { type: 'sent', data });
     });
@@ -204,11 +133,6 @@ function handleProtoSend(ws, msg, state) {
       if (err) send(ws, { type: 'error', message: `协议发送失败: ${err.message}` });
       else send(ws, { type: 'proto-sent', hex: buf.toString('hex').toUpperCase() });
     });
-  } else if (state.mode === 'serial' && state.serialPort && state.serialPort.isOpen) {
-    state.serialPort.write(buf, (err) => {
-      if (err) send(ws, { type: 'error', message: `协议发送失败: ${err.message}` });
-      else send(ws, { type: 'proto-sent', hex: buf.toString('hex').toUpperCase() });
-    });
   } else {
     send(ws, { type: 'error', message: '未连接到设备，请先连接' });
   }
@@ -217,7 +141,6 @@ function handleProtoSend(ws, msg, state) {
 // ==================== 清理 ====================
 function cleanup(state) {
   if (state.tcpClient) { state.tcpClient.destroy(); state.tcpClient = null; }
-  if (state.serialPort) { state.serialPort.close(() => {}); state.serialPort = null; }
   state.mode = null;
 }
 
