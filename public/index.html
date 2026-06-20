@@ -441,6 +441,13 @@
                   <span class="reset-slider" data-target="contrast" data-default="0" style="font-size:11px;color:var(--primary);cursor:pointer;white-space:nowrap" title="复位">↺</span>
                 </div>
               </div>
+              <div class="form-group" style="flex:1;min-width:140px">
+                <label>Pixel Scale <span id="pixelScaleVal" style="color:var(--text-sec)">1</span></label>
+                <div style="display:flex;align-items:center;gap:6px">
+                  <input type="range" id="pixelScale" min="1" max="25" value="1" style="flex:1;accent-color:var(--primary)">
+                  <span class="reset-slider" data-target="pixelScale" data-default="1" style="font-size:11px;color:var(--primary);cursor:pointer;white-space:nowrap" title="复位">↺</span>
+                </div>
+              </div>
             </div>
             <div class="form-row" style="margin-top:8px">
               <div class="form-group" style="flex-direction:row;align-items:center;gap:6px">
@@ -1384,6 +1391,9 @@
     document.getElementById('contrast').addEventListener('input', e => {
       document.getElementById('contrastVal').textContent = e.target.value;
     });
+    document.getElementById('pixelScale').addEventListener('input', e => {
+      document.getElementById('pixelScaleVal').textContent = e.target.value;
+    });
     // 单个滑条复位
     document.querySelectorAll('.reset-slider').forEach(btn => {
       btn.addEventListener('click', () => {
@@ -1405,22 +1415,35 @@
       const brightness = parseInt(document.getElementById('brightness').value);
       const contrastVal = parseInt(document.getElementById('contrast').value);
       const serpentine = document.getElementById('serpentine').checked;
+      const pixelScale = Math.max(1, parseInt(document.getElementById('pixelScale').value) || 1);
+      // 抖动在缩小分辨率上进行
+      const dw = Math.ceil(w / pixelScale), dh = Math.ceil(h / pixelScale);
       const tempCanvas = document.createElement('canvas');
-      tempCanvas.width = w; tempCanvas.height = h;
+      tempCanvas.width = dw; tempCanvas.height = dh;
       const tempCtx = tempCanvas.getContext('2d');
-      tempCtx.drawImage(loadedImage, 0, 0, w, h);
-      const imageData = tempCtx.getImageData(0, 0, w, h);
+      tempCtx.drawImage(loadedImage, 0, 0, dw, dh);
+      const imageData = tempCtx.getImageData(0, 0, dw, dh);
       const dithered = ditherImage(imageData, palette, { algo, strength, brightness, contrast: contrastVal, serpentine });
-      // 画到隐藏 canvas（原始分辨率）
+      // 画到隐藏 canvas，pixelScale > 1 时用最近邻放大
       canvasDith.width = w; canvasDith.height = h;
-      canvasDith.getContext('2d').putImageData(dithered, 0, 0);
+      const dithCtx = canvasDith.getContext('2d');
+      if (pixelScale > 1) {
+        const smallCanvas = document.createElement('canvas');
+        smallCanvas.width = dw; smallCanvas.height = dh;
+        smallCanvas.getContext('2d').putImageData(dithered, 0, 0);
+        dithCtx.imageSmoothingEnabled = false;
+        dithCtx.drawImage(smallCanvas, 0, 0, w, h);
+      } else {
+        dithCtx.putImageData(dithered, 0, 0);
+      }
       // 转成图片 URL 显示，浏览器默认平滑缩放
       ditheredPreview.src = canvasDith.toDataURL('image/png');
       ditheredPreview.style.display = 'block';
       // 启用查看大图按钮
       viewFullBtn.style.display = '';
       viewFullBtn.disabled = false;
-      const modResult = generateModData(dithered, palette);
+      const finalData = dithCtx.getImageData(0, 0, w, h);
+      const modResult = generateModData(finalData, palette);
       modDataPreview.textContent = modResult.hex;
       modDataInfo.textContent = `分辨率: ${w}×${h} | 数据大小: ${modResult.bytes.length} 字节 | 色板: ${getPaletteName(palette)}`;
       copyDataBtn.onclick = () => {
@@ -1442,7 +1465,7 @@
       win.document.close();
     });
 
-    function getPaletteName(p) { return { bw1:'黑白 1bit', bwr1:'黑白红 1bit', bwyr2:'黑白黄红 2bit', bwrgby4:'黑白黄红蓝绿 4bit' }[p] || p; }
+    function getPaletteName(p) { return { bw1:'黑白 1bit', bwr1:'黑白红 1bit', bwyr2:'黑白黄红 2bit', bwrgby4:'黑白黄红蓝绿 3bit' }[p] || p; }
 
     function ditherImage(imageData, palette, opts = {}) {
       const { algo = 'floydSteinberg', strength = 1, brightness = 0, contrast = 0, serpentine = false } = opts;
