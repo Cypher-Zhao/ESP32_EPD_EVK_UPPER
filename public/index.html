@@ -149,6 +149,39 @@
     .serial-row .form-group { flex: 1; justify-content: flex-end; }
     .serial-row .btn { align-self: flex-end; }
 
+    /* 图片拖放区域 */
+    .drop-zone {
+      position: relative;
+      border: 2px dashed var(--border);
+      border-radius: 8px;
+      padding: 16px;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color .2s, background .2s;
+      background: var(--bg);
+      flex: 1;
+      min-height: 72px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .drop-zone:hover { border-color: var(--primary); background: rgba(0,120,212,.03); }
+    .drop-zone.dragover {
+      border-color: var(--primary);
+      background: rgba(0,120,212,.08);
+      box-shadow: 0 0 0 3px rgba(0,120,212,.12);
+    }
+    .drop-zone .drop-hint {
+      font-size: 13px; color: var(--text-sec);
+      pointer-events: none;
+    }
+    .drop-zone .drop-hint .drop-icon { font-size: 28px; display: block; margin-bottom: 6px; }
+    .drop-zone input[type="file"] {
+      position: absolute; inset: 0; width: 100%; height: 100%;
+      opacity: 0; cursor: pointer; z-index: 1;
+      margin: 0;
+    }
+
     /* Web Serial 警告 */
     #serial-not-supported {
       display: none;
@@ -383,13 +416,14 @@
     <div class="card collapsed" id="imageCard">
       <div class="card-header"><span>🖼️</span> 图片抖动与取模 <span class="chevron">▼</span></div>
       <div class="card-body">
-        <div class="form-row" style="margin-bottom:5px">
-          <div class="form-group" style="flex:1">
-            <label>选择图片</label>
-            <input type="file" id="imageInput" accept="image/*" style="padding:8px 0">
+        <div class="drop-zone" id="dropZone" style="margin-bottom:5px">
+          <div class="drop-hint">
+            <span class="drop-icon">📁</span>
+            拖放图片到此处，或点击选择文件
           </div>
-          <div id="origSizeInfo" style="font-size:13px;color:var(--text-sec);align-self:flex-end;padding-bottom:8px"></div>
+          <input type="file" id="imageInput" accept="image/*">
         </div>
+        <div id="origSizeInfo" style="font-size:13px;color:var(--text-sec);margin-bottom:5px"></div>
         <div class="form-row" style="margin-bottom:5px">
           <div style="display:flex;gap:12px;align-items:flex-end;flex:1">
             <div class="form-group" style="flex:1;min-width:0">
@@ -1456,6 +1490,12 @@
     imageInput.addEventListener('change', (e) => {
       const file = e.target.files[0];
       if (!file) return;
+      loadImageFile(file);
+    });
+
+    // ========== 图片拖放功能 ==========
+    function loadImageFile(file) {
+      if (!file || !file.type.startsWith('image/')) return;
       const img = new Image();
       img.onload = () => {
         loadedImage = img;
@@ -1477,7 +1517,32 @@
         modDataInfo.textContent = '';
       };
       img.src = URL.createObjectURL(file);
+    }
+
+    const dropZone = document.getElementById('dropZone');
+    ['dragenter', 'dragover'].forEach(evt => {
+      dropZone.addEventListener(evt, (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        dropZone.classList.add('dragover');
+      });
     });
+    ['dragleave', 'drop'].forEach(evt => {
+      dropZone.addEventListener(evt, (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        dropZone.classList.remove('dragover');
+      });
+    });
+    dropZone.addEventListener('drop', (e) => {
+      const files = e.dataTransfer.files;
+      if (files.length > 0) {
+        loadImageFile(files[0]);
+      }
+    });
+    // 阻止页面级别的拖放默认行为（防止浏览器打开图片）
+    document.addEventListener('dragover', (e) => e.preventDefault());
+    document.addEventListener('drop', (e) => e.preventDefault());
 
     // 高级设置面板切换
     document.getElementById('advDitherToggle').addEventListener('click', () => {
