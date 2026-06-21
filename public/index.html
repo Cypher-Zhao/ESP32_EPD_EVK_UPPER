@@ -218,6 +218,7 @@
       .tab { padding: 10px 16px; font-size: 13px; }
       .send-row { flex-direction: column; }
       .send-row input { font-size: 16px; } /* 防止iOS缩放 */
+      #wsTimeoutInput { font-size: 16px; } /* 防止iOS缩放 */
     }
   </style>
 </head>
@@ -242,7 +243,7 @@
         <div class="tab-content active" id="tab-ws">
           <div style="padding:8px 0 12px;font-size:13px;color:var(--text-sec)">直接通过 WebSocket 连接 ESP32（ESP32 需开启 WebSocket Server）</div>
           <div class="form-row" style="gap:2px">
-            <div class="form-group" style="flex:3;min-width:0">
+            <div class="form-group" style="flex:1;min-width:0">
               <label>IP 地址</label>
               <input type="text" id="wsIpInput" placeholder="例如: 192.168.10.33" maxlength="45">
               <span class="hint" id="wsIpHint"></span>
@@ -258,9 +259,17 @@
                 <input type="text" id="wsPathInput" placeholder="/ws" value="/ws" maxlength="64">
                 <span class="hint"></span>
               </div>
+              <div class="form-group" style="flex:1;min-width:55px;max-width:70px">
+                <label>超时(s)</label>
+                <input type="number" id="wsTimeoutInput" value="5" min="1" max="60" maxlength="2">
+                <span class="hint"></span>
+              </div>
               <div class="form-group" style="flex:none;width:auto">
                 <label>&nbsp;</label>
-                <button class="btn btn-primary" id="wsConnectBtn" style="min-height:40px">连接</button>
+                <div style="display:flex;gap:4px">
+                  <button class="btn btn-primary" id="wsConnectBtn" style="min-height:40px">连接</button>
+                  <button class="btn btn-danger" id="wsCancelBtn" style="min-height:40px;display:none">取消</button>
+                </div>
                 <span class="hint"></span>
               </div>
             </div>
@@ -702,6 +711,41 @@
       }
     })();
 
+    // ========== WebSocket 连接超时管理 ==========
+    let wsConnectTimer = null;  // 超时定时器
+    let wsConnecting = false;   // 正在连接中标志
+    const WS_CONNECT_TIMEOUT_DEFAULT = 8; // 默认超时秒数
+
+    /** 清除连接超时定时器 */
+    function clearWsConnectTimer() {
+      if (wsConnectTimer) {
+        clearTimeout(wsConnectTimer);
+        wsConnectTimer = null;
+      }
+    }
+
+    /** 切换「连接中」UI 状态 */
+    function setWsConnectingState(connecting) {
+      wsConnecting = connecting;
+      const connectBtn = document.getElementById('wsConnectBtn');
+      const cancelBtn = document.getElementById('wsCancelBtn');
+      if (connecting) {
+        connectBtn.style.display = 'none';
+        cancelBtn.style.display = '';
+        connectBtn.disabled = true;
+      } else {
+        connectBtn.style.display = '';
+        cancelBtn.style.display = 'none';
+        connectBtn.disabled = false;
+      }
+    }
+
+    /** 获取超时秒数（合法范围 1-60） */
+    function getWsTimeout() {
+      const v = parseInt(document.getElementById('wsTimeoutInput').value, 10);
+      return (isNaN(v) || v < 1 || v > 60) ? WS_CONNECT_TIMEOUT_DEFAULT : v;
+    }
+
     document.getElementById('wsConnectBtn').onclick = () => {
       // 已连接时断开
       if (currentMode === 'ws' && wsDevice) {
@@ -718,15 +762,31 @@
 
       const path = (document.getElementById('wsPathInput').value.trim() || '/');
       const wsUrl = `ws://${ip}:${port}${path}`;
-      setStatus('connecting', `正在连接 ${wsUrl} ...`);
-      document.getElementById('wsConnectBtn').disabled = true;
+      const timeoutSec = getWsTimeout();
+      setStatus('connecting', `正在连接 ${wsUrl} ...（${timeoutSec}s 超时）`);
+      setWsConnectingState(true);
 
       try {
         wsDevice = new WebSocket(wsUrl);
         wsDevice.binaryType = 'arraybuffer';
 
+        // 启动连接超时定时器
+        wsConnectTimer = setTimeout(() => {
+          if (wsConnecting && wsDevice) {
+            console.warn('[WS直连] 连接超时');
+            addMessage('error', `连接超时（${timeoutSec} 秒）：目标 ${wsUrl} 无法建立连接`);
+            addMessage('system', '可能原因: 1) 目标不在同一局域网  2) IP/端口不正确  3) ESP32 未开启 WebSocket Server  4) 防火墙拦截');
+            try { wsDevice.close(); } catch (e) {}
+            wsDevice = null;
+            setWsConnectingState(false);
+            setStatus('disconnected', `连接超时（${timeoutSec}s）- 请检查目标地址和网络`);
+          }
+        }, timeoutSec * 1000);
+
         wsDevice.onopen = () => {
           console.log('[WS直连] 已连接');
+          clearWsConnectTimer();
+          setWsConnectingState(false);
           onConnected('ws', `已连接到 ${wsUrl}`, `WS ${ip}:${port}${path}`);
         };
 
@@ -748,23 +808,55 @@
 
         wsDevice.onclose = (e) => {
           console.log('[WS直连] 已断开', e.code, e.reason);
+          clearWsConnectTimer();
+
+          // 如果是连接超时触发的 close，上面的定时器已经处理了，这里直接返回
+          if (!wsDevice) {
+            setWsConnectingState(false);
+            return;
+          }
+
           wsDevice = null;
+          setWsConnectingState(false);
+
           if (currentMode === 'ws') {
             // 给出详细诊断信息
             let hint = '';
             if (location.protocol === 'https:') {
               hint = '（HTTPS 页面不允许 ws:// 连接，请用 http:// 访问本页面，或 ESP32 改用 wss://）';
             } else if (e.code === 1006) {
-              hint = '（连接被关闭：ESP32 可能未开启 WebSocket Server，或端口/IP 不正确）';
+              hint = '（异常关闭：目标可能不在同一网络、IP/端口不正确、ESP32 未开启 WebSocket Server，或连接超时）';
+            } else if (e.code === 1003) {
+              hint = '（不支持的数据类型）';
+            } else if (e.code === 1008) {
+              hint = '（策略违规）';
+            } else if (e.code === 1011) {
+              hint = '（服务器内部错误）';
             }
             onDisconnected(`WebSocket 连接已关闭 ${hint}`.trim());
+          } else {
+            // 非 ws 模式下的断开（例如超时后触发的 onclose）
+            setStatus('disconnected', '连接已关闭');
           }
         };
       } catch (err) {
+        clearWsConnectTimer();
+        setWsConnectingState(false);
         addMessage('error', `连接失败: ${err.message}`);
         setStatus('disconnected', `连接失败: ${err.message}`);
-        document.getElementById('wsConnectBtn').disabled = false;
       }
+    };
+
+    // 取消连接按钮
+    document.getElementById('wsCancelBtn').onclick = () => {
+      clearWsConnectTimer();
+      if (wsDevice) {
+        try { wsDevice.close(); } catch (e) {}
+        wsDevice = null;
+      }
+      setWsConnectingState(false);
+      addMessage('system', '用户取消了连接');
+      setStatus('disconnected', '连接已取消');
     };
 
     // ========== Web Serial API 检测 ==========
@@ -1098,8 +1190,11 @@
       setTabLocked(true);
 
       if (mode === 'ws') {
-        document.getElementById('wsConnectBtn').disabled = true;
-        document.getElementById('wsDisconnectBtn').disabled = false;
+        document.getElementById('wsConnectBtn').disabled = false;
+        document.getElementById('wsConnectBtn').textContent = '断开';
+        document.getElementById('wsConnectBtn').classList.remove('btn-primary');
+        document.getElementById('wsConnectBtn').classList.add('btn-danger');
+        setWsConnectingState(false);
         wsIpInput.disabled = true; wsPortInput.disabled = true;
         document.getElementById('wsPathInput').disabled = true;
       } else if (mode === 'serial-web') {
@@ -1137,8 +1232,12 @@
       setTabLocked(false);
 
       // 恢复所有按钮
-      document.getElementById('wsConnectBtn').disabled = false;
-      document.getElementById('wsDisconnectBtn').disabled = true;
+      setWsConnectingState(false);
+      const wsBtn = document.getElementById('wsConnectBtn');
+      wsBtn.disabled = false;
+      wsBtn.textContent = '连接';
+      wsBtn.classList.remove('btn-danger');
+      wsBtn.classList.add('btn-primary');
       wsIpInput.disabled = false; wsPortInput.disabled = false;
       document.getElementById('wsPathInput').disabled = false;
 
