@@ -258,14 +258,11 @@
                 <input type="text" id="wsPathInput" placeholder="/ws" value="/ws" maxlength="64">
                 <span class="hint"></span>
               </div>
-            </div>
-            <div class="form-group">
-              <label>&nbsp;</label>
-              <div style="display:flex;gap:6px">
+              <div class="form-group" style="flex:none;width:auto">
+                <label>&nbsp;</label>
                 <button class="btn btn-primary" id="wsConnectBtn" style="min-height:40px">连接</button>
-                <button class="btn btn-danger" id="wsDisconnectBtn" disabled style="min-height:40px">断开</button>
+                <span class="hint"></span>
               </div>
-              <span class="hint"></span>
             </div>
           </div>
         </div>
@@ -706,6 +703,13 @@
     })();
 
     document.getElementById('wsConnectBtn').onclick = () => {
+      // 已连接时断开
+      if (currentMode === 'ws' && wsDevice) {
+        wsDevice.close();
+        wsDevice = null;
+        return;
+      }
+
       const ip = wsIpInput.value.trim(), port = wsPortInput.value.trim();
       const ie = validateIP(ip), pe = validatePort(port);
       wsIpHint.textContent = ie; wsPortHint.textContent = pe;
@@ -760,13 +764,6 @@
         addMessage('error', `连接失败: ${err.message}`);
         setStatus('disconnected', `连接失败: ${err.message}`);
         document.getElementById('wsConnectBtn').disabled = false;
-      }
-    };
-
-    document.getElementById('wsDisconnectBtn').onclick = () => {
-      if (wsDevice) {
-        wsDevice.close();
-        wsDevice = null;
       }
     };
 
