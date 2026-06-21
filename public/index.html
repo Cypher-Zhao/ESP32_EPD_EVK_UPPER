@@ -519,7 +519,8 @@
           <div id="sideBySideView" style="display:flex;gap:16px;flex-wrap:wrap">
             <div style="flex:1;min-width:200px">
               <div style="font-size:13px;font-weight:500;color:var(--text-sec);margin-bottom:8px">原图</div>
-              <canvas id="canvasOriginal" style="width:100%;max-height:400px;object-fit:contain;border:1px solid var(--border);border-radius:6px;background:#fff"></canvas>
+              <canvas id="canvasOriginal" style="width:100%;max-height:400px;object-fit:contain;border:1px solid var(--border);border-radius:6px;background:#fff;display:none"></canvas>
+              <img id="originalPreview" style="width:100%;max-height:400px;object-fit:contain;border:1px solid var(--border);border-radius:6px;background:#fff;display:none">
             </div>
             <div style="flex:1;min-width:200px">
               <div style="font-size:13px;font-weight:500;color:var(--text-sec);margin-bottom:8px">抖动后</div>
@@ -529,7 +530,8 @@
           </div>
           <div id="compareView" style="display:none;position:relative;overflow:hidden;border:1px solid var(--border);border-radius:6px;cursor:ew-resize;user-select:none;-webkit-user-select:none">
             <img id="compareAfter" style="width:100%;display:block;pointer-events:none">
-            <canvas id="compareBefore" style="position:absolute;top:0;left:0;width:100%;height:auto;pointer-events:none"></canvas>
+            <canvas id="compareBeforeCanvas" style="display:none"></canvas>
+            <img id="compareBefore" style="position:absolute;top:0;left:0;width:100%;height:auto;pointer-events:none">
             <div id="compareSlider" style="position:absolute;top:0;left:50%;width:3px;height:100%;background:#fff;box-shadow:0 0 6px rgba(0,0,0,.6);transform:translateX(-50%);pointer-events:none;z-index:2">
               <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:40px;height:40px;background:rgba(255,255,255,.95);border-radius:50%;box-shadow:0 2px 8px rgba(0,0,0,.3);display:flex;align-items:center;justify-content:center;pointer-events:none">
                 <span style="font-size:14px;color:#555;font-weight:bold">◀▶</span>
@@ -1479,6 +1481,7 @@
     const convertBtn = document.getElementById('convertBtn');
     const viewFullBtn = document.getElementById('viewFullBtn');
     const canvasOrig = document.getElementById('canvasOriginal');
+    const originalPreview = document.getElementById('originalPreview');
     const canvasDith = document.getElementById('canvasDithered');
     const ditheredPreview = document.getElementById('ditheredPreview');
     const imagePreview = document.getElementById('imagePreview');
@@ -1512,6 +1515,9 @@
         canvasOrig.width = img.width;
         canvasOrig.height = img.height;
         ctx.drawImage(img, 0, 0);
+        originalPreview.src = canvasOrig.toDataURL('image/png');
+        canvasOrig.style.display = 'none';
+        originalPreview.style.display = 'block';
         imagePreview.style.display = 'block';
         modDataPreview.textContent = '点击「转换」按钮生成取模数据';
         modDataInfo.textContent = '';
@@ -1648,6 +1654,7 @@
     const compareBtn = document.getElementById('compareBtn');
     const compareView = document.getElementById('compareView');
     const compareBefore = document.getElementById('compareBefore');
+    const compareBeforeCanvas = document.getElementById('compareBeforeCanvas');
     const compareAfter = document.getElementById('compareAfter');
     const compareSlider = document.getElementById('compareSlider');
     const sideBySideView = document.getElementById('sideBySideView');
@@ -1669,9 +1676,11 @@
       if (!w || !h) return;
       // 设置容器宽高比，防止图片加载前容器塌陷
       compareView.style.aspectRatio = w + ' / ' + h;
-      compareBefore.width = w; compareBefore.height = h;
-      const ctx = compareBefore.getContext('2d');
+      // 绘制原图到隐藏 canvas，再转 PNG 给 img 显示（与抖动后一致）
+      compareBeforeCanvas.width = w; compareBeforeCanvas.height = h;
+      const ctx = compareBeforeCanvas.getContext('2d');
       ctx.drawImage(loadedImage, 0, 0, w, h);
+      compareBefore.src = compareBeforeCanvas.toDataURL('image/png');
       compareAfter.src = canvasDith.toDataURL('image/png');
       setComparePosition(50);
     }
