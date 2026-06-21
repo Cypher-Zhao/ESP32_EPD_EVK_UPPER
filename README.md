@@ -15,7 +15,8 @@
 
 ### 图片处理
 - 上传图片并设置目标分辨率
-- Floyd-Steinberg 抖动算法，支持三种调色板：
+- 多种抖动算法：Floyd-Steinberg、Atkinson、Jarvis-Judice-Ninke、Stucki、Burkes、Sierra、Ordered、Threshold、Random 等
+- 支持调色板：
   - 黑白 1-bit
   - 黑白红 1-bit
   - 黑白黄红 2-bit
@@ -117,3 +118,7 @@ npx serve public
 ├── DEPLOY.md                # 部署说明
 └── README.md                # 本文件
 ```
+
+## 致谢
+
+- 图片抖动算法实现参考自 [ditherit-v3](https://github.com/alexharris/ditherit-v3)（by Alex Harris, MIT License），感谢原作者的开源贡献。
