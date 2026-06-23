@@ -269,8 +269,8 @@
       <div class="card-body">
         <div class="tabs">
           <div class="tab active" data-tab="ws">WebSocket</div>
-          <div class="tab" data-tab="serial">串口连接</div>
           <div class="tab" data-tab="ble">BLE 蓝牙</div>
+          <div class="tab" data-tab="serial">串口连接</div>
         </div>
 
         <!-- WebSocket -->
@@ -307,6 +307,45 @@
                 <span class="hint"></span>
               </div>
             </div>
+          </div>
+        </div>
+
+        <!-- BLE -->
+        <div class="tab-content" id="tab-ble">
+          <div id="ble-not-supported" style="display:none;padding:12px;background:#fff4ce;color:#8a6d3b;border-radius:6px;margin-bottom:12px;font-size:13px">
+            ⚠️ 当前浏览器不支持 Web Bluetooth API，请使用 Chrome/Edge 浏览器访问
+          </div>
+          <div style="padding:8px 0 12px;font-size:13px;color:var(--text-sec)">通过 BLE 低功耗蓝牙连接 ESP32（ESP32 需开启 BLE GATT Server）</div>
+          <div class="form-row" style="gap:2px">
+            <div class="form-group" style="flex:1;min-width:0">
+              <label>Service UUID</label>
+              <input type="text" id="bleServiceUuid" placeholder="例如: 0000ffe0-0000-1000-8000-00805f9b34fb" maxlength="36">
+              <span class="hint" style="font-size:11px;color:var(--text-sec)">留空则扫描所有设备</span>
+            </div>
+            <div class="form-group" style="flex:none;width:auto">
+              <label>&nbsp;</label>
+              <button class="btn btn-primary" id="bleScanBtn">扫描 & 连接</button>
+              <button class="btn btn-danger" id="bleDisconnectBtn" style="display:none">断开</button>
+              <span class="hint" style="visibility:hidden">占位</span>
+            </div>
+          </div>
+          <div style="font-size:13px;font-weight:600;margin-bottom:10px">GATT 特征值配置</div>
+          <div class="form-row serial-row" style="margin-bottom:12px">
+            <div class="form-group" style="flex:1">
+              <label>TX Characteristic（设备 → 浏览器，Notify）</label>
+              <input type="text" id="bleTxCharUuid" placeholder="例如: 0000ffe1-0000-1000-8000-00805f9b34fb" maxlength="36">
+              <span class="hint" style="font-size:11px;color:var(--text-sec)">接收数据的特征值</span>
+            </div>
+          </div>
+          <div class="form-row serial-row" style="margin-bottom:12px">
+            <div class="form-group" style="flex:1">
+              <label>RX Characteristic（浏览器 → 设备，Write）</label>
+              <input type="text" id="bleRxCharUuid" placeholder="例如: 0000ffe2-0000-1000-8000-00805f9b34fb" maxlength="36">
+              <span class="hint" style="font-size:11px;color:var(--text-sec)">发送数据的特征值</span>
+            </div>
+          </div>
+          <div id="bleDeviceInfo" style="padding:10px;background:#f5f5f5;border-radius:6px;font-size:13px;color:var(--text-sec);min-height:40px;display:flex;align-items:center">
+            未连接 BLE 设备
           </div>
         </div>
 
@@ -373,43 +412,6 @@
               </div>
             </div>
             <div id="wifiStatusInfo" style="font-size:13px;color:var(--text-sec);min-height:20px"></div>
-          </div>
-        </div>
-
-        <!-- BLE -->
-        <div class="tab-content" id="tab-ble">
-          <div id="ble-not-supported" style="display:none;padding:12px;background:#fff4ce;color:#8a6d3b;border-radius:6px;margin-bottom:12px;font-size:13px">
-            ⚠️ 当前浏览器不支持 Web Bluetooth API，请使用 Chrome/Edge 浏览器访问
-          </div>
-          <div style="padding:8px 0 12px;font-size:13px;color:var(--text-sec)">通过 BLE 低功耗蓝牙连接 ESP32（ESP32 需开启 BLE GATT Server）</div>
-          <div class="form-row" style="margin-bottom:12px;gap:12px">
-            <div class="form-group" style="flex:2;min-width:0">
-              <label>Service UUID</label>
-              <input type="text" id="bleServiceUuid" placeholder="例如: 0000ffe0-0000-1000-8000-00805f9b34fb" maxlength="36">
-              <span class="hint" style="font-size:11px;color:var(--text-sec)">留空则扫描所有设备</span>
-            </div>
-            <div style="display:flex;align-items:flex-end;padding-bottom:0">
-              <button class="btn btn-primary" id="bleScanBtn" style="min-height:40px">扫描 & 连接</button>
-              <button class="btn btn-danger" id="bleDisconnectBtn" style="min-height:40px;display:none">断开</button>
-            </div>
-          </div>
-          <div style="font-size:13px;font-weight:600;margin-bottom:10px">GATT 特征值配置</div>
-          <div class="form-row serial-row" style="margin-bottom:12px">
-            <div class="form-group" style="flex:1">
-              <label>TX Characteristic（设备 → 浏览器，Notify）</label>
-              <input type="text" id="bleTxCharUuid" placeholder="例如: 0000ffe1-0000-1000-8000-00805f9b34fb" maxlength="36">
-              <span class="hint" style="font-size:11px;color:var(--text-sec)">接收数据的特征值</span>
-            </div>
-          </div>
-          <div class="form-row serial-row" style="margin-bottom:12px">
-            <div class="form-group" style="flex:1">
-              <label>RX Characteristic（浏览器 → 设备，Write）</label>
-              <input type="text" id="bleRxCharUuid" placeholder="例如: 0000ffe2-0000-1000-8000-00805f9b34fb" maxlength="36">
-              <span class="hint" style="font-size:11px;color:var(--text-sec)">发送数据的特征值</span>
-            </div>
-          </div>
-          <div id="bleDeviceInfo" style="padding:10px;background:#f5f5f5;border-radius:6px;font-size:13px;color:var(--text-sec);min-height:40px;display:flex;align-items:center">
-            未连接 BLE 设备
           </div>
         </div>
 
@@ -823,8 +825,8 @@
     document.getElementById('wsConnectBtn').onclick = () => {
       // 已连接时断开
       if (currentMode === 'ws' && wsDevice) {
-        wsDevice.close();
-        wsDevice = null;
+        wsDevice.close(1000, 'User disconnected');
+        // 不要在此处置 null，让 onclose 回调处理状态恢复
         return;
       }
 
@@ -894,9 +896,11 @@
           setWsConnectingState(false);
 
           if (currentMode === 'ws') {
-            // 给出详细诊断信息
+            // 用户主动关闭（code 1000）vs 异常关闭
             let hint = '';
-            if (location.protocol === 'https:') {
+            if (e.code === 1000) {
+              // 正常关闭，无需提示
+            } else if (location.protocol === 'https:') {
               hint = '（HTTPS 页面不允许 ws:// 连接，请用 http:// 访问本页面，或 ESP32 改用 wss://）';
             } else if (e.code === 1006) {
               hint = '（异常关闭：目标可能不在同一网络、IP/端口不正确、ESP32 未开启 WebSocket Server，或连接超时）';
@@ -907,7 +911,7 @@
             } else if (e.code === 1011) {
               hint = '（服务器内部错误）';
             }
-            onDisconnected(`WebSocket 连接已关闭 ${hint}`.trim());
+            onDisconnected(hint ? `WebSocket 连接已关闭 ${hint}` : '已断开 WebSocket 连接');
           } else {
             // 非 ws 模式下的断开（例如超时后触发的 onclose）
             setStatus('disconnected', '连接已关闭');
