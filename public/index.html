@@ -270,6 +270,7 @@
         <div class="tabs">
           <div class="tab active" data-tab="ws">WebSocket</div>
           <div class="tab" data-tab="serial">串口连接</div>
+          <div class="tab" data-tab="ble">BLE 蓝牙</div>
         </div>
 
         <!-- WebSocket -->
@@ -372,6 +373,43 @@
               </div>
             </div>
             <div id="wifiStatusInfo" style="font-size:13px;color:var(--text-sec);min-height:20px"></div>
+          </div>
+        </div>
+
+        <!-- BLE -->
+        <div class="tab-content" id="tab-ble">
+          <div id="ble-not-supported" style="display:none;padding:12px;background:#fff4ce;color:#8a6d3b;border-radius:6px;margin-bottom:12px;font-size:13px">
+            ⚠️ 当前浏览器不支持 Web Bluetooth API，请使用 Chrome/Edge 浏览器访问
+          </div>
+          <div style="padding:8px 0 12px;font-size:13px;color:var(--text-sec)">通过 BLE 低功耗蓝牙连接 ESP32（ESP32 需开启 BLE GATT Server）</div>
+          <div class="form-row" style="margin-bottom:12px;gap:12px">
+            <div class="form-group" style="flex:2;min-width:0">
+              <label>Service UUID</label>
+              <input type="text" id="bleServiceUuid" placeholder="例如: 0000ffe0-0000-1000-8000-00805f9b34fb" maxlength="36">
+              <span class="hint" style="font-size:11px;color:var(--text-sec)">留空则扫描所有设备</span>
+            </div>
+            <div style="display:flex;align-items:flex-end;padding-bottom:0">
+              <button class="btn btn-primary" id="bleScanBtn" style="min-height:40px">扫描 & 连接</button>
+              <button class="btn btn-danger" id="bleDisconnectBtn" style="min-height:40px;display:none">断开</button>
+            </div>
+          </div>
+          <div style="font-size:13px;font-weight:600;margin-bottom:10px">GATT 特征值配置</div>
+          <div class="form-row serial-row" style="margin-bottom:12px">
+            <div class="form-group" style="flex:1">
+              <label>TX Characteristic（设备 → 浏览器，Notify）</label>
+              <input type="text" id="bleTxCharUuid" placeholder="例如: 0000ffe1-0000-1000-8000-00805f9b34fb" maxlength="36">
+              <span class="hint" style="font-size:11px;color:var(--text-sec)">接收数据的特征值</span>
+            </div>
+          </div>
+          <div class="form-row serial-row" style="margin-bottom:12px">
+            <div class="form-group" style="flex:1">
+              <label>RX Characteristic（浏览器 → 设备，Write）</label>
+              <input type="text" id="bleRxCharUuid" placeholder="例如: 0000ffe2-0000-1000-8000-00805f9b34fb" maxlength="36">
+              <span class="hint" style="font-size:11px;color:var(--text-sec)">发送数据的特征值</span>
+            </div>
+          </div>
+          <div id="bleDeviceInfo" style="padding:10px;background:#f5f5f5;border-radius:6px;font-size:13px;color:var(--text-sec);min-height:40px;display:flex;align-items:center">
+            未连接 BLE 设备
           </div>
         </div>
 
@@ -579,7 +617,7 @@
     const origSizeInfo = document.getElementById('origSizeInfo');
 
     let connected = false;
-    let currentMode = null; // 'ws' | 'serial-web'
+    let currentMode = null; // 'ws' | 'serial-web' | 'ble'
     let messageCount = 0;
     let rxBuffer = []; // 接收缓冲区，处理粘包
     let protoPending = null; // 等待协议响应的回调
@@ -1113,6 +1151,424 @@
       });
     }
 
+    // ========== Web Bluetooth API 检测 ==========
+    const bleSupported = 'bluetooth' in navigator;
+    const isFileProtocol = location.protocol === 'file:';
+    if (!bleSupported) {
+      document.getElementById('ble-not-supported').style.display = 'block';
+      document.getElementById('bleScanBtn').disabled = true;
+    } else if (isFileProtocol) {
+      // file:// 协议下 Web Bluetooth 受限，显示警告
+      document.getElementById('ble-not-supported').style.display = 'block';
+      document.getElementById('ble-not-supported').innerHTML =
+        '⚠️ 当前页面通过 <b>file://</b> 协议打开，Web Bluetooth API 可能被浏览器限制。<br>' +
+        '请通过本地 HTTP 服务器访问本页面（如 VS Code Live Server），或在终端运行：<br>' +
+        '<code style="background:rgba(0,0,0,.08);padding:2px 6px;border-radius:3px">npx serve public</code> 或 ' +
+        '<code style="background:rgba(0,0,0,.08);padding:2px 6px;border-radius:3px">python -m http.server 8080 -d public</code>';
+      document.getElementById('ble-not-supported').style.color = '#8a6d3b';
+      document.getElementById('ble-not-supported').style.background = '#fff4ce';
+      // 不禁用按钮，允许用户尝试连接
+    }
+
+    // ========== BLE 蓝牙变量 ==========
+    let bleDevice = null;
+    let bleServer = null;
+    let bleTxChar = null;  // 通知特征值（设备→浏览器）
+    let bleRxChar = null;  // 写入特征值（浏览器→设备）
+    let bleConnected = false;
+
+    // 默认 UUID（Nordic UART Service 常见配置，可按实际修改）
+    const BLE_DEFAULT_SERVICE = '0000ffe0-0000-1000-8000-00805f9b34fb';
+    const BLE_DEFAULT_TX_CHAR = '0000ffe1-0000-1000-8000-00805f9b34fb';
+    const BLE_DEFAULT_RX_CHAR = '0000ffe2-0000-1000-8000-00805f9b34fb';
+
+    // UUID 辅助：判断是否为有效的 128-bit UUID 或 16-bit 短 UUID
+    function isValidUuid(str) {
+      if (!str) return false;
+      str = str.trim();
+      // 128-bit UUID 格式
+      if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str)) return true;
+      // 16-bit / 32-bit 短 UUID（纯十六进制数字）
+      if (/^[0-9a-f]{4,8}$/i.test(str)) return true;
+      return false;
+    }
+
+    // 将短 UUID 补全为完整 128-bit 格式
+    function normalizeUuid(str) {
+      if (!str) return null;
+      str = str.trim();
+      if (/^[0-9a-f]{4,8}$/i.test(str)) {
+        return `0000${str}-0000-1000-8000-00805f9b34fb`;
+      }
+      return str;
+    }
+
+    // 解析用户输入的 TX/RX UUID（可填多个，逗号分隔，取第一个匹配的）
+    function parseUuidList(input) {
+      if (!input || !input.trim()) return [];
+      return input.split(',').map(s => normalizeUuid(s.trim())).filter(Boolean);
+    }
+
+    // BLE 扫描并连接
+    document.getElementById('bleScanBtn').onclick = async () => {
+      if (bleConnected && bleDevice) {
+        // 已连接时 → 断开
+        await disconnectBle();
+        return;
+      }
+
+      if (!bleSupported) {
+        addMessage('error', '当前浏览器不支持 Web Bluetooth API，请使用 Chrome/Edge 浏览器');
+        return;
+      }
+
+      try {
+        setStatus('connecting', '正在扫描 BLE 设备...');
+        document.getElementById('bleScanBtn').disabled = true;
+
+        const serviceUuidInput = document.getElementById('bleServiceUuid').value.trim();
+        const options = {};
+
+        // 收集所有需要访问的 UUID（用于 optionalServices）
+        const allUuids = [];
+        if (serviceUuidInput && isValidUuid(serviceUuidInput)) {
+          allUuids.push(normalizeUuid(serviceUuidInput));
+        }
+        // 也把 TX/RX UUID 加入（如果用户填了的话，它们可能和 Service UUID 不同）
+        const txInput = document.getElementById('bleTxCharUuid').value.trim();
+        const rxInput = document.getElementById('bleRxCharUuid').value.trim();
+        // Characteristic UUID 不需要加到 optionalServices，只需要 Service UUID
+        // 但有些设备的 Characteristic UUID 格式特殊，保险起见加常见 Service UUID
+        const commonServiceUuids = [
+          '12345678-1234-5678-1234-56789abcdef0',  // ESP32 EPD EVK 自定义服务
+          '0000ffe0-0000-1000-8000-00805f9b34fb',  // HM-10 / CC2541
+          '6e400001-b5a3-f393-e0a9-e50e24dcca9e',  // Nordic UART Service (NUS)
+          '0000fff0-0000-1000-8000-00805f9b34fb',  // 常见自定义服务
+          '4fafc201-1fb5-459e-8fcc-c5c9c331914b',  // ESP-IDF 默认示例
+          '00001800-0000-1000-8000-00805f9b34fb',  // Generic Access
+          '00001801-0000-1000-8000-00805f9b34fb',  // Generic Attribute
+        ];
+
+        if (serviceUuidInput && isValidUuid(serviceUuidInput)) {
+          // 按 Service UUID 过滤，同时加到 optionalServices
+          const serviceUuid = normalizeUuid(serviceUuidInput);
+          options.filters = [{ services: [serviceUuid] }];
+          options.optionalServices = [serviceUuid, ...commonServiceUuids];
+        } else {
+          // 不过滤，显示所有 BLE 设备
+          // 必须声明 optionalServices 否则连接后无法访问任何服务
+          options.acceptAllDevices = true;
+          options.optionalServices = commonServiceUuids;
+        }
+
+        addMessage('system', '正在请求 BLE 设备...');
+        bleDevice = await navigator.bluetooth.requestDevice(options);
+
+        addMessage('system', `已选择设备: ${bleDevice.name || '(未知设备)'}`);
+
+        // 监听 GATT 断开事件
+        bleDevice.addEventListener('gattserverdisconnected', onBleGattDisconnected);
+
+        // 连接 GATT Server
+        setStatus('connecting', `正在连接 GATT Server: ${bleDevice.name || '未知设备'}...`);
+        bleServer = await bleDevice.gatt.connect();
+
+        // 检查连接是否仍然有效
+        if (!bleServer.connected) throw new Error('GATT 连接失败');
+
+        // === 列出所有可用服务（用于调试） ===
+        addMessage('system', '正在枚举 GATT 服务...');
+        const allServices = await bleServer.getPrimaryServices();
+        if (allServices.length === 0) {
+          throw new Error('设备未提供任何 GATT 服务，请确认 ESP32 BLE 服务已启动');
+        }
+        addMessage('system', `发现 ${allServices.length} 个服务:`);
+        for (const s of allServices) {
+          addMessage('system', `  • ${s.uuid}`);
+        }
+
+        // 已知的系统级 Service UUID（不应作为数据传输服务）
+        const SYSTEM_SERVICE_UUIDS = new Set([
+          '00001800-0000-1000-8000-00805f9b34fb',  // Generic Access
+          '00001801-0000-1000-8000-00805f9b34fb',  // Generic Attribute
+          '0000180a-0000-1000-8000-00805f9b34fb',  // Device Information
+          '0000180f-0000-1000-8000-00805f9b34fb',  // Battery Service
+          '00001805-0000-1000-8000-00805f9b34fb',  // Current Time
+          '00001802-0000-1000-8000-00805f9b34fb',  // Alert Notification
+          '00001803-0000-1000-8000-00805f9b34fb',  // Tx Power
+        ]);
+
+        // 已知的系统级 Characteristic UUID（不适合作为 TX/RX）
+        const SYSTEM_CHAR_UUIDS = new Set([
+          '00002a00-0000-1000-8000-00805f9b34fb',  // Device Name
+          '00002a01-0000-1000-8000-00805f9b34fb',  // Appearance
+          '00002a04-0000-1000-8000-00805f9b34fb',  // Peripheral Preferred Connection Parameters
+          '00002a05-0000-1000-8000-00805f9b34fb',  // Service Changed
+          '00002a19-0000-1000-8000-00805f9b34fb',  // Battery Level
+          '00002a29-0000-1000-8000-00805f9b34fb',  // Manufacturer Name String
+          '00002a24-0000-1000-8000-00805f9b34fb',  // Model Number String
+          '00002a25-0000-1000-8000-00805f9b34fb',  // Serial Number String
+          '00002a26-0000-1000-8000-00805f9b34fb',  // Firmware Revision String
+          '00002a27-0000-1000-8000-00805f9b34fb',  // Hardware Revision String
+          '00002a28-0000-1000-8000-00805f9b34fb',  // Software Revision String
+        ]);
+
+        // === 选择 Service ===
+        let service;
+        const serviceUuidInput2 = document.getElementById('bleServiceUuid').value.trim();
+        if (serviceUuidInput2 && isValidUuid(serviceUuidInput2)) {
+          // 用户指定了 Service UUID
+          const serviceUuid = normalizeUuid(serviceUuidInput2);
+          try {
+            service = await bleServer.getPrimaryService(serviceUuid);
+          } catch (e) {
+            addMessage('error', `指定的服务 ${serviceUuid} 不存在: ${e.message}`);
+            // 尝试找非系统服务
+            const custom = allServices.find(s => !SYSTEM_SERVICE_UUIDS.has(s.uuid));
+            if (custom) {
+              service = custom;
+              addMessage('system', `自动选择自定义服务: ${service.uuid}`);
+            } else {
+              addMessage('system', '可用服务列表已打印到上方，请填入正确的 Service UUID');
+              throw new Error(`服务 ${serviceUuid} 不存在，请检查 Service UUID`);
+            }
+          }
+        } else {
+          // 未指定 → 优先选非系统服务
+          const custom = allServices.find(s => !SYSTEM_SERVICE_UUIDS.has(s.uuid));
+          if (custom) {
+            service = custom;
+            addMessage('system', `自动选择自定义服务: ${service.uuid}`);
+          } else {
+            // 只有系统服务，列出所有让用户选择
+            addMessage('system', '⚠ 未发现自定义服务，可用服务列表已打印到上方');
+            addMessage('system', '请在 Service UUID 输入框中填入 ESP32 数据服务的 UUID 后重试');
+            throw new Error('未找到可用于数据传输的自定义 GATT 服务，请填入正确的 Service UUID');
+          }
+        }
+
+        addMessage('system', `已获取 Service: ${service.uuid}`);
+
+        // 检查连接是否仍然有效
+        if (!bleServer.connected) throw new Error('GATT 连接已断开');
+
+        // === 获取 Characteristics ===
+        const allChars = await service.getCharacteristics();
+        addMessage('system', `服务下共 ${allChars.length} 个特征值:`);
+        for (const c of allChars) {
+          const props = [];
+          if (c.properties.read) props.push('Read');
+          if (c.properties.write) props.push('Write');
+          if (c.properties.writeWithoutResponse) props.push('WriteNoResp');
+          if (c.properties.notify) props.push('Notify');
+          if (c.properties.indicate) props.push('Indicate');
+          addMessage('system', `  • ${c.uuid} [${props.join(', ')}]`);
+        }
+
+        // TX Characteristic（Notify/Indicate）
+        const txUuids = parseUuidList(document.getElementById('bleTxCharUuid').value);
+        const rxUuids = parseUuidList(document.getElementById('bleRxCharUuid').value);
+
+        if (txUuids.length > 0) {
+          for (const uuid of txUuids) {
+            try { bleTxChar = await service.getCharacteristic(uuid); break; } catch (e) {}
+          }
+        }
+        if (!bleTxChar) {
+          // 自动查找：跳过系统特征值，优先找自定义特征值
+          for (const c of allChars) {
+            if (SYSTEM_CHAR_UUIDS.has(c.uuid)) continue;
+            if (c.properties.notify || c.properties.indicate) {
+              bleTxChar = c; break;
+            }
+          }
+          // 还没找到？不排除系统特征值再试一次
+          if (!bleTxChar) {
+            for (const c of allChars) {
+              if (c.properties.notify || c.properties.indicate) {
+                bleTxChar = c; break;
+              }
+            }
+          }
+        }
+        if (!bleTxChar) throw new Error('未找到可 Notify/Indicate 的 TX 特征值');
+        addMessage('system', `TX Characteristic: ${bleTxChar.uuid}`);
+
+        // RX Characteristic（Write/WriteWithoutResponse）
+        if (rxUuids.length > 0) {
+          for (const uuid of rxUuids) {
+            try { bleRxChar = await service.getCharacteristic(uuid); break; } catch (e) {}
+          }
+        }
+        if (!bleRxChar) {
+          // 自动查找：跳过系统特征值，优先找和 TX 不同的
+          for (const c of allChars) {
+            if (SYSTEM_CHAR_UUIDS.has(c.uuid)) continue;
+            if (c !== bleTxChar && (c.properties.writeWithoutResponse || c.properties.write)) {
+              bleRxChar = c; break;
+            }
+          }
+          // 再试：不排除系统特征值
+          if (!bleRxChar) {
+            for (const c of allChars) {
+              if (c !== bleTxChar && (c.properties.writeWithoutResponse || c.properties.write)) {
+                bleRxChar = c; break;
+              }
+            }
+          }
+          // 最后：TX 本身也支持 Write
+          if (!bleRxChar) {
+            const props = bleTxChar.properties;
+            if (props.writeWithoutResponse || props.write) bleRxChar = bleTxChar;
+          }
+        }
+        if (!bleRxChar) throw new Error('未找到可 Write 的 RX 特征值');
+        addMessage('system', `RX Characteristic: ${bleRxChar.uuid}`);
+
+        // 检查连接是否仍然有效
+        if (!bleServer.connected) throw new Error('GATT 连接已断开');
+
+        // 启用 TX Notify
+        try {
+          await bleTxChar.startNotifications();
+          bleTxChar.addEventListener('characteristicvaluechanged', onBleNotify);
+        } catch (e) {
+          addMessage('error', `启用 Notify 失败: ${e.message}`);
+          addMessage('system', '提示: 该特征值可能不支持 Notify，请检查 ESP32 配置');
+          throw e;
+        }
+
+        // 连接成功
+        bleConnected = true;
+        const devName = bleDevice.name || 'BLE 设备';
+        const badgeLabel = `BLE ${devName.length > 16 ? devName.slice(0, 16) + '…' : devName}`;
+        onConnected('ble', `已连接 BLE: ${devName}`, badgeLabel);
+
+        // 更新 BLE 面板状态
+        document.getElementById('bleDeviceInfo').innerHTML =
+          `<div style="display:flex;flex-direction:column;gap:4px">
+            <div><b>设备:</b> ${esc(devName)}</div>
+            <div><b>Service:</b> ${service.uuid}</div>
+            <div><b>TX:</b> ${bleTxChar.uuid}</div>
+            <div><b>RX:</b> ${bleRxChar.uuid}</div>
+          </div>`;
+        document.getElementById('bleDeviceInfo').style.color = 'var(--success)';
+
+        // 切换按钮
+        document.getElementById('bleScanBtn').style.display = 'none';
+        document.getElementById('bleDisconnectBtn').style.display = '';
+
+      } catch (err) {
+        console.error('[BLE] 连接错误:', err.name, err.message, err);
+        if (err.name === 'NotFoundError') {
+          addMessage('system', '用户取消了设备选择');
+          setStatus('disconnected', '已取消');
+        } else if (isFileProtocol || err.name === 'SecurityError') {
+          addMessage('error', `BLE 连接失败: ${err.name}: ${err.message}`);
+          addMessage('system', '💡 解决方法：请通过本地 HTTP 服务器访问本页面，不要直接打开 file:// 文件');
+          addMessage('system', '   python -m http.server 8080 -d public');
+          addMessage('system', '   然后访问 http://localhost:8080');
+          setStatus('disconnected', 'BLE 安全策略受限 — 请用 HTTP 服务器');
+        } else {
+          addMessage('error', `BLE 连接失败: ${err.name}: ${err.message}`);
+          setStatus('disconnected', `BLE 连接失败: ${err.message}`);
+        }
+        document.getElementById('bleScanBtn').disabled = false;
+      }
+    };
+
+    // BLE 断开按钮
+    document.getElementById('bleDisconnectBtn').onclick = async () => {
+      await disconnectBle();
+    };
+
+    // BLE Notify 回调
+    function onBleNotify(event) {
+      const value = event.target.value;
+      if (value && value.byteLength > 0) {
+        const bytes = Array.from(new Uint8Array(value.buffer));
+        rxBuffer.push(...bytes);
+        processReceivedData();
+      }
+    }
+
+    // BLE GATT 服务意外断开回调
+    function onBleGattDisconnected() {
+      console.log('[BLE] GATT 已断开');
+      if (currentMode === 'ble' || bleConnected) {
+        bleConnected = false;
+        bleDevice = null;
+        bleServer = null;
+        bleTxChar = null;
+        bleRxChar = null;
+        onDisconnected('BLE 设备已断开（GATT 断开）');
+        resetBleUI();
+      } else if (bleDevice) {
+        // 连接过程中断开
+        console.log('[BLE] 连接过程中 GATT 断开');
+        bleDevice = null;
+        bleServer = null;
+        bleTxChar = null;
+        bleRxChar = null;
+      }
+    }
+
+    // 断开 BLE 连接
+    async function disconnectBle() {
+      try {
+        if (bleTxChar) {
+          try { await bleTxChar.stopNotifications(); } catch (e) {}
+          bleTxChar.removeEventListener('characteristicvaluechanged', onBleNotify);
+        }
+      } catch (e) {}
+
+      try {
+        if (bleDevice && bleDevice.gatt.connected) {
+          bleDevice.gatt.disconnect();
+        }
+      } catch (e) {}
+
+      bleConnected = false;
+      bleDevice = null;
+      bleServer = null;
+      bleTxChar = null;
+      bleRxChar = null;
+
+      onDisconnected('已断开 BLE 连接');
+      resetBleUI();
+    }
+
+    // 重置 BLE UI 状态
+    function resetBleUI() {
+      document.getElementById('bleDeviceInfo').innerHTML = '未连接 BLE 设备';
+      document.getElementById('bleDeviceInfo').style.color = 'var(--text-sec)';
+      document.getElementById('bleScanBtn').style.display = '';
+      document.getElementById('bleScanBtn').disabled = false;
+      document.getElementById('bleDisconnectBtn').style.display = 'none';
+    }
+
+    // BLE 写入数据（不分包，BLE 特征值通常最大 ~512 字节）
+    async function writeBleData(data) {
+      if (!bleRxChar || !bleConnected) {
+        throw new Error('BLE 未连接或 RX 特征值不可用');
+      }
+
+      // BLE 特征值写入有 MTU 限制，需要分包
+      // 一般 MTU 为 20-512 字节，安全起见使用 204 字节（协商后通常为 244 或更大）
+      const BLE_MTU_SAFE = 204;
+      const uint8 = data instanceof Uint8Array ? data : new Uint8Array(data);
+      const useWriteWithoutResponse = bleRxChar.properties.writeWithoutResponse;
+
+      for (let offset = 0; offset < uint8.length; offset += BLE_MTU_SAFE) {
+        const chunk = uint8.slice(offset, offset + BLE_MTU_SAFE);
+        if (useWriteWithoutResponse) {
+          await bleRxChar.writeValueWithoutResponse(chunk);
+        } else {
+          await bleRxChar.writeValueWithResponse(chunk);
+        }
+      }
+    }
+
     // 处理接收到的数据
     function processReceivedData() {
       const filterOn = document.getElementById('protoFilterToggle').checked;
@@ -1240,6 +1696,11 @@
         document.getElementById('serialConnectBtn').classList.add('btn-danger');
         document.getElementById('baudRateSelect').disabled = true;
         document.getElementById('selectDeviceBtn').disabled = true;
+      } else if (mode === 'ble') {
+        document.getElementById('bleScanBtn').disabled = true;
+        document.getElementById('bleServiceUuid').disabled = true;
+        document.getElementById('bleTxCharUuid').disabled = true;
+        document.getElementById('bleRxCharUuid').disabled = true;
       }
 
       addMessage('system', statusMsg);
@@ -1285,6 +1746,14 @@
       document.getElementById('baudRateSelect').disabled = false;
       document.getElementById('selectDeviceBtn').disabled = false;
 
+      // 恢复 BLE 按钮状态
+      if (!bleConnected) {
+        resetBleUI();
+        document.getElementById('bleServiceUuid').disabled = false;
+        document.getElementById('bleTxCharUuid').disabled = false;
+        document.getElementById('bleRxCharUuid').disabled = false;
+      }
+
       if (reason) addMessage('system', reason);
     }
 
@@ -1306,6 +1775,13 @@
           // WebSocket 直连模式：直接发送到 ESP32
           const encoder = new TextEncoder();
           wsDevice.send(encoder.encode(data));
+          addMessage('sent', data);
+          sendInput.value = '';
+          sendInput.focus();
+        } else if (currentMode === 'ble' && bleConnected) {
+          // BLE 蓝牙模式：直接发送到 ESP32
+          const encoder = new TextEncoder();
+          await writeBleData(encoder.encode(data));
           addMessage('sent', data);
           sendInput.value = '';
           sendInput.focus();
@@ -1367,6 +1843,9 @@
         } else if (currentMode === 'ws' && wsDevice && wsDevice.readyState === 1) {
           // WebSocket 直连模式：直接发送二进制帧到 ESP32
           wsDevice.send(new Uint8Array(frame));
+        } else if (currentMode === 'ble' && bleConnected) {
+          // BLE 蓝牙模式：通过 RX 特征值发送
+          await writeBleData(new Uint8Array(frame));
         }
       } catch (err) {
         addMessage('error', `协议发送失败: ${err.message}`);
@@ -1395,6 +1874,9 @@
           } else if (currentMode === 'ws' && wsDevice && wsDevice.readyState === 1) {
             // WebSocket 直连模式：直接发送二进制帧到 ESP32
             wsDevice.send(new Uint8Array(frame));
+          } else if (currentMode === 'ble' && bleConnected) {
+            // BLE 蓝牙模式：通过 RX 特征值发送
+            await writeBleData(new Uint8Array(frame));
           } else {
             clearTimeout(timer);
             protoPending = null;
