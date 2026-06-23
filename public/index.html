@@ -319,31 +319,37 @@
           <div class="form-row" style="gap:2px">
             <div class="form-group" style="flex:1;min-width:0">
               <label>Service UUID</label>
-              <input type="text" id="bleServiceUuid" placeholder="例如: 0000ffe0-0000-1000-8000-00805f9b34fb" maxlength="36">
-              <span class="hint" style="font-size:11px;color:var(--text-sec)">留空则扫描所有设备</span>
+              <input type="text" id="bleServiceUuid" placeholder="留空=自动发现常用服务；自定义UUID请填此" maxlength="36">
+              <span class="hint" style="font-size:11px;color:var(--text-sec)">⚠️ 若设备使用自定义Service UUID，请务必填写，否则浏览器无法发现该服务</span>
             </div>
             <div class="form-group" style="flex:none;width:auto">
               <label>&nbsp;</label>
-              <button class="btn btn-primary" id="bleScanBtn">扫描 & 连接</button>
-              <button class="btn btn-danger" id="bleDisconnectBtn" style="display:none">断开</button>
+              <div style="display:flex;gap:4px">
+                <button class="btn btn-primary" id="bleScanBtn">扫描 & 连接</button>
+                <button class="btn btn-danger" id="bleDisconnectBtn" style="display:none">断开</button>
+              </div>
               <span class="hint" style="visibility:hidden">占位</span>
             </div>
           </div>
-          <div style="font-size:13px;font-weight:600;margin-bottom:10px">GATT 特征值配置</div>
-          <div class="form-row serial-row" style="margin-bottom:12px">
-            <div class="form-group" style="flex:1">
-              <label>TX Characteristic（设备 → 浏览器，Notify）</label>
-              <input type="text" id="bleTxCharUuid" placeholder="例如: 0000ffe1-0000-1000-8000-00805f9b34fb" maxlength="36">
-              <span class="hint" style="font-size:11px;color:var(--text-sec)">接收数据的特征值</span>
+          <details style="margin-bottom:12px;font-size:12px;color:var(--text-sec)">
+            <summary style="cursor:pointer;user-select:none;font-weight:600;font-size:13px;color:var(--text)">高级：GATT 特征值配置（一般无需填写）</summary>
+            <div style="padding:8px 0">
+              <div class="form-row serial-row" style="margin-bottom:8px">
+                <div class="form-group" style="flex:1">
+                  <label>TX Characteristic（设备 → 浏览器，Notify）</label>
+                  <input type="text" id="bleTxCharUuid" placeholder="留空=自动发现支持Notify的特征值" maxlength="36">
+                  <span class="hint" style="font-size:11px;color:var(--text-sec)">接收数据的特征值UUID</span>
+                </div>
+              </div>
+              <div class="form-row serial-row" style="margin-bottom:8px">
+                <div class="form-group" style="flex:1">
+                  <label>RX Characteristic（浏览器 → 设备，Write）</label>
+                  <input type="text" id="bleRxCharUuid" placeholder="留空=自动发现支持Write的特征值" maxlength="36">
+                  <span class="hint" style="font-size:11px;color:var(--text-sec)">发送数据的特征值UUID</span>
+                </div>
+              </div>
             </div>
-          </div>
-          <div class="form-row serial-row" style="margin-bottom:12px">
-            <div class="form-group" style="flex:1">
-              <label>RX Characteristic（浏览器 → 设备，Write）</label>
-              <input type="text" id="bleRxCharUuid" placeholder="例如: 0000ffe2-0000-1000-8000-00805f9b34fb" maxlength="36">
-              <span class="hint" style="font-size:11px;color:var(--text-sec)">发送数据的特征值</span>
-            </div>
-          </div>
+          </details>
           <div id="bleDeviceInfo" style="padding:10px;background:#f5f5f5;border-radius:6px;font-size:13px;color:var(--text-sec);min-height:40px;display:flex;align-items:center">
             未连接 BLE 设备
           </div>
@@ -1213,6 +1219,56 @@
       return input.split(',').map(s => normalizeUuid(s.trim())).filter(Boolean);
     }
 
+    // Service UUID 持久化（localStorage）
+    const BLE_SERVICE_UUID_KEY = 'epd_evk_ble_service_uuid';
+    const BLE_RECENT_UUIDS_KEY = 'epd_evk_ble_recent_uuids';
+    const MAX_RECENT_UUIDS = 5;
+
+    function saveBleServiceUuid(uuid) {
+      if (!uuid) return;
+      try {
+        localStorage.setItem(BLE_SERVICE_UUID_KEY, uuid);
+        // 更新最近使用的 UUID 列表
+        let recent = JSON.parse(localStorage.getItem(BLE_RECENT_UUIDS_KEY) || '[]');
+        recent = [uuid, ...recent.filter(u => u !== uuid)].slice(0, MAX_RECENT_UUIDS);
+        localStorage.setItem(BLE_RECENT_UUIDS_KEY, JSON.stringify(recent));
+      } catch (e) {}
+    }
+
+    function loadBleServiceUuid() {
+      try {
+        return localStorage.getItem(BLE_SERVICE_UUID_KEY) || '';
+      } catch (e) { return ''; }
+    }
+
+    function getRecentBleUuids() {
+      try {
+        return JSON.parse(localStorage.getItem(BLE_RECENT_UUIDS_KEY) || '[]');
+      } catch (e) { return []; }
+    }
+
+    // 页面加载时恢复 Service UUID
+    (function restoreBleServiceUuid() {
+      const saved = loadBleServiceUuid();
+      const input = document.getElementById('bleServiceUuid');
+      if (saved && input && !input.value.trim()) {
+        input.value = saved;
+      }
+      // 添加最近使用下拉
+      const recent = getRecentBleUuids();
+      if (recent.length > 1 && input) {
+        const datalist = document.createElement('datalist');
+        datalist.id = 'bleServiceUuidList';
+        recent.forEach(u => {
+          const opt = document.createElement('option');
+          opt.value = u;
+          datalist.appendChild(opt);
+        });
+        input.setAttribute('list', 'bleServiceUuidList');
+        input.parentNode.appendChild(datalist);
+      }
+    })();
+
     // BLE 扫描并连接
     document.getElementById('bleScanBtn').onclick = async () => {
       if (bleConnected && bleDevice) {
@@ -1233,37 +1289,37 @@
         const serviceUuidInput = document.getElementById('bleServiceUuid').value.trim();
         const options = {};
 
-        // 收集所有需要访问的 UUID（用于 optionalServices）
-        const allUuids = [];
-        if (serviceUuidInput && isValidUuid(serviceUuidInput)) {
-          allUuids.push(normalizeUuid(serviceUuidInput));
-        }
-        // 也把 TX/RX UUID 加入（如果用户填了的话，它们可能和 Service UUID 不同）
-        const txInput = document.getElementById('bleTxCharUuid').value.trim();
-        const rxInput = document.getElementById('bleRxCharUuid').value.trim();
-        // Characteristic UUID 不需要加到 optionalServices，只需要 Service UUID
-        // 但有些设备的 Characteristic UUID 格式特殊，保险起见加常见 Service UUID
+        // 始终使用 acceptAllDevices，不做过滤，让用户从所有 BLE 设备中选择
+        // 通过 optionalServices 声明所有可能需要访问的 Service UUID
         const commonServiceUuids = [
-          '12345678-1234-5678-1234-56789abcdef0',  // ESP32 EPD EVK 自定义服务
+          'e92a1c6d-4b8f-4a3e-b7c2-8d1f0e5a9b3c',  // ESP32 EPD EVK 自定义服务
           '0000ffe0-0000-1000-8000-00805f9b34fb',  // HM-10 / CC2541
           '6e400001-b5a3-f393-e0a9-e50e24dcca9e',  // Nordic UART Service (NUS)
           '0000fff0-0000-1000-8000-00805f9b34fb',  // 常见自定义服务
           '4fafc201-1fb5-459e-8fcc-c5c9c331914b',  // ESP-IDF 默认示例
           '00001800-0000-1000-8000-00805f9b34fb',  // Generic Access
           '00001801-0000-1000-8000-00805f9b34fb',  // Generic Attribute
+          '0000180a-0000-1000-8000-00805f9b34fb',  // Device Information
+          '0000180f-0000-1000-8000-00805f9b34fb',  // Battery Service
         ];
 
+        // 如果用户手动填了 Service UUID，也加进去
         if (serviceUuidInput && isValidUuid(serviceUuidInput)) {
-          // 按 Service UUID 过滤，同时加到 optionalServices
-          const serviceUuid = normalizeUuid(serviceUuidInput);
-          options.filters = [{ services: [serviceUuid] }];
-          options.optionalServices = [serviceUuid, ...commonServiceUuids];
-        } else {
-          // 不过滤，显示所有 BLE 设备
-          // 必须声明 optionalServices 否则连接后无法访问任何服务
-          options.acceptAllDevices = true;
-          options.optionalServices = commonServiceUuids;
+          const uuid = normalizeUuid(serviceUuidInput);
+          if (!commonServiceUuids.includes(uuid)) commonServiceUuids.unshift(uuid);
         }
+        // 用户填的 TX/RX UUID 如果是 Service 级别的也加进去
+        const txInput = document.getElementById('bleTxCharUuid').value.trim();
+        const rxInput = document.getElementById('bleRxCharUuid').value.trim();
+
+        // 把 localStorage 里保存的历史 Service UUID 也加入 optionalServices
+        for (const u of getRecentBleUuids()) {
+          const nu = normalizeUuid(u);
+          if (nu && !commonServiceUuids.includes(nu)) commonServiceUuids.push(nu);
+        }
+
+        options.acceptAllDevices = true;
+        options.optionalServices = commonServiceUuids;
 
         addMessage('system', '正在请求 BLE 设备...');
         bleDevice = await navigator.bluetooth.requestDevice(options);
@@ -1273,9 +1329,31 @@
         // 监听 GATT 断开事件
         bleDevice.addEventListener('gattserverdisconnected', onBleGattDisconnected);
 
-        // 连接 GATT Server
+        // 连接 GATT Server（带重试，最多 3 次）
         setStatus('connecting', `正在连接 GATT Server: ${bleDevice.name || '未知设备'}...`);
-        bleServer = await bleDevice.gatt.connect();
+        const GATT_MAX_RETRY = 3;
+        for (let attempt = 1; attempt <= GATT_MAX_RETRY; attempt++) {
+          try {
+            bleServer = await bleDevice.gatt.connect();
+            if (bleServer.connected) break;
+          } catch (e) {
+            addMessage('system', `GATT 连接尝试 ${attempt}/${GATT_MAX_RETRY} 失败: ${e.message}`);
+            if (attempt < GATT_MAX_RETRY) {
+              // 等待 500ms 后重试
+              await new Promise(r => setTimeout(r, 500));
+            } else {
+              // 所有重试都失败
+              throw new Error(
+                `GATT 连接失败（已重试 ${GATT_MAX_RETRY} 次）\n` +
+                `可能原因:\n` +
+                `  1) ESP32 BLE 服务未启动或未正确配置\n` +
+                `  2) ESP32 已达到最大连接数（尝试按复位键重启 ESP32）\n` +
+                `  3) 蓝牙适配器异常（尝试关闭再重新打开电脑蓝牙）\n` +
+                `  4) 其他应用正在占用 BLE 连接`
+              );
+            }
+          }
+        }
 
         // 检查连接是否仍然有效
         if (!bleServer.connected) throw new Error('GATT 连接失败');
@@ -1317,38 +1395,53 @@
           '00002a28-0000-1000-8000-00805f9b34fb',  // Software Revision String
         ]);
 
-        // === 选择 Service ===
+        // === 选择 Service：自动从所有可用服务中找最适合数据传输的 ===
         let service;
         const serviceUuidInput2 = document.getElementById('bleServiceUuid').value.trim();
+
+        // 第一优先：用户手动指定的 UUID
         if (serviceUuidInput2 && isValidUuid(serviceUuidInput2)) {
-          // 用户指定了 Service UUID
           const serviceUuid = normalizeUuid(serviceUuidInput2);
           try {
             service = await bleServer.getPrimaryService(serviceUuid);
+            addMessage('system', `使用指定服务: ${service.uuid}`);
           } catch (e) {
-            addMessage('error', `指定的服务 ${serviceUuid} 不存在: ${e.message}`);
-            // 尝试找非系统服务
-            const custom = allServices.find(s => !SYSTEM_SERVICE_UUIDS.has(s.uuid));
-            if (custom) {
-              service = custom;
-              addMessage('system', `自动选择自定义服务: ${service.uuid}`);
-            } else {
-              addMessage('system', '可用服务列表已打印到上方，请填入正确的 Service UUID');
-              throw new Error(`服务 ${serviceUuid} 不存在，请检查 Service UUID`);
-            }
+            addMessage('system', `指定的服务 ${serviceUuid} 未找到，将自动选择`);
           }
-        } else {
-          // 未指定 → 优先选非系统服务
+        }
+
+        // 第二优先：非系统服务（自定义服务）
+        if (!service) {
           const custom = allServices.find(s => !SYSTEM_SERVICE_UUIDS.has(s.uuid));
           if (custom) {
             service = custom;
             addMessage('system', `自动选择自定义服务: ${service.uuid}`);
-          } else {
-            // 只有系统服务，列出所有让用户选择
-            addMessage('system', '⚠ 未发现自定义服务，可用服务列表已打印到上方');
-            addMessage('system', '请在 Service UUID 输入框中填入 ESP32 数据服务的 UUID 后重试');
-            throw new Error('未找到可用于数据传输的自定义 GATT 服务，请填入正确的 Service UUID');
           }
+        }
+
+        // 第三优先：任何可用服务（包括系统服务），选特征值最多的那个
+        if (!service && allServices.length > 0) {
+          let maxChars = 0;
+          for (const s of allServices) {
+            try {
+              const chars = await s.getCharacteristics();
+              if (chars.length > maxChars) {
+                maxChars = chars.length;
+                service = s;
+              }
+            } catch (e) { /* 跳过无法枚举的服务 */ }
+          }
+          if (service) {
+            addMessage('system', `自动选择特征值最多的服务: ${service.uuid} (${maxChars} 个特征值)`);
+          }
+        }
+
+        if (!service) {
+          throw new Error(
+            '设备未提供任何可用的 GATT 服务\n' +
+            '💡 提示: 如果你的设备使用自定义 Service UUID，请在上方「Service UUID」输入框中填写后重试\n' +
+            '   Web Bluetooth 要求必须声明要访问的 Service UUID，否则浏览器会隐藏该服务'
+          );
         }
 
         addMessage('system', `已获取 Service: ${service.uuid}`);
@@ -1447,6 +1540,9 @@
         const devName = bleDevice.name || 'BLE 设备';
         const badgeLabel = `BLE ${devName.length > 16 ? devName.slice(0, 16) + '…' : devName}`;
         onConnected('ble', `已连接 BLE: ${devName}`, badgeLabel);
+
+        // 保存成功连接的 Service UUID（下次自动填充）
+        saveBleServiceUuid(service.uuid);
 
         // 更新 BLE 面板状态
         document.getElementById('bleDeviceInfo').innerHTML =
