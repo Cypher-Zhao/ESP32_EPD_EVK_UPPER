@@ -271,6 +271,7 @@
           <div class="tab active" data-tab="ws">WebSocket</div>
           <div class="tab" data-tab="ble">BLE 蓝牙</div>
           <div class="tab" data-tab="serial">串口连接</div>
+          <div class="tab" data-tab="wifi" id="tabWifiBtn" style="display:none">📶 WiFi 配置</div>
         </div>
 
         <!-- WebSocket -->
@@ -389,36 +390,36 @@
               <button class="btn btn-primary" id="serialConnectBtn">连接</button>
             </div>
           </div>
-          <!-- WiFi 配置 -->
-          <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border)">
-            <div style="font-size:14px;font-weight:600;margin-bottom:12px">WiFi 配置</div>
-            <div class="form-row serial-row" style="margin-bottom:10px">
-              <div class="form-group" style="flex:2">
-                <label>SSID</label>
-                <input type="text" id="wifiSsidInput" placeholder="WiFi 名称" maxlength="63" disabled>
-              </div>
-              <div style="display:flex;align-items:flex-end;padding-bottom:0">
-                <button class="btn btn-primary" id="wifiSetSsidBtn" disabled>设置 SSID</button>
-              </div>
+        </div>
+
+        <!-- WiFi 配置 -->
+        <div class="tab-content" id="tab-wifi">
+          <div class="form-row serial-row" style="margin-bottom:10px">
+            <div class="form-group" style="flex:2">
+              <label>SSID</label>
+              <input type="text" id="wifiSsidInput" placeholder="WiFi 名称" maxlength="63" disabled>
             </div>
-            <div class="form-row serial-row" style="margin-bottom:10px">
-              <div class="form-group" style="flex:2">
-                <label>密码</label>
-                <input type="text" id="wifiPwdInput" placeholder="WiFi 密码" maxlength="63" disabled>
-              </div>
-              <div style="display:flex;align-items:flex-end;padding-bottom:0">
-                <button class="btn btn-primary" id="wifiSetPwdBtn" disabled>设置密码</button>
-              </div>
+            <div style="display:flex;align-items:flex-end;padding-bottom:0">
+              <button class="btn btn-primary" id="wifiSetSsidBtn" disabled>设置 SSID</button>
             </div>
-            <div class="form-row" style="margin-bottom:10px">
-              <div style="display:flex;gap:8px;flex-wrap:wrap">
-                <button class="btn btn-outline" id="wifiStatusBtn" disabled>获取 WiFi 状态</button>
-                <button class="btn btn-send" id="wifiConnectBtn" disabled>连接 WiFi</button>
-                <button class="btn btn-danger" id="wifiDisconnectBtn" disabled>断开 WiFi</button>
-              </div>
-            </div>
-            <div id="wifiStatusInfo" style="font-size:13px;color:var(--text-sec);min-height:20px"></div>
           </div>
+          <div class="form-row serial-row" style="margin-bottom:10px">
+            <div class="form-group" style="flex:2">
+              <label>密码</label>
+              <input type="text" id="wifiPwdInput" placeholder="WiFi 密码" maxlength="63" disabled>
+            </div>
+            <div style="display:flex;align-items:flex-end;padding-bottom:0">
+              <button class="btn btn-primary" id="wifiSetPwdBtn" disabled>设置密码</button>
+            </div>
+          </div>
+          <div class="form-row" style="margin-bottom:10px">
+            <div style="display:flex;gap:8px;flex-wrap:wrap">
+              <button class="btn btn-outline" id="wifiStatusBtn" disabled>获取 WiFi 状态</button>
+              <button class="btn btn-send" id="wifiConnectBtn" disabled>连接 WiFi</button>
+              <button class="btn btn-danger" id="wifiDisconnectBtn" disabled>断开 WiFi</button>
+            </div>
+          </div>
+          <div id="wifiStatusInfo" style="font-size:13px;color:var(--text-sec);min-height:20px"></div>
         </div>
 
         <div class="status-bar disconnected" id="statusBar">
@@ -717,7 +718,7 @@
 
     function setTabLocked(locked) {
       document.querySelectorAll('.tab').forEach(t => {
-        if (!t.classList.contains('active')) {
+        if (!t.classList.contains('active') && t.id !== 'tabWifiBtn') {
           t.classList.toggle('disabled', locked);
         }
       });
@@ -1776,6 +1777,7 @@
       imageCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
       setWifiEnabled(true);
+      document.getElementById('tabWifiBtn').style.display = '';
       sendInput.focus();
 
       // 锁定标签
@@ -1824,6 +1826,10 @@
       sendImgFlashBtn.disabled = true;
 
       setWifiEnabled(false);
+      // 隐藏 WiFi 标签页
+      document.getElementById('tabWifiBtn').style.display = 'none';
+      document.getElementById('tabWifiBtn').classList.remove('active');
+      document.getElementById('tab-wifi').classList.remove('active');
 
       // 解锁标签
       setTabLocked(false);
