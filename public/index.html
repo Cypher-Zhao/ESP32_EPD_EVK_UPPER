@@ -2115,6 +2115,18 @@
     const originalPreview = document.getElementById('originalPreview');
     const canvasDith = document.getElementById('canvasDithered');
     const ditheredPreview = document.getElementById('ditheredPreview');
+
+    // 根据图片缩放倍率自动切换渲染模式，避免点阵图出现噪点/模糊
+    function applyPixelRendering(img) {
+      if (!img.naturalWidth || !img.clientWidth) return;
+      const scaleX = img.clientWidth / img.naturalWidth;
+      const scaleY = img.clientHeight / img.naturalHeight;
+      // 放大显示时用像素锐利，缩小时用平滑
+      img.style.imageRendering = (scaleX > 1 || scaleY > 1) ? 'pixelated' : 'auto';
+    }
+    // 预览图加载后自动适配渲染模式
+    originalPreview.onload = () => applyPixelRendering(originalPreview);
+    ditheredPreview.onload = () => applyPixelRendering(ditheredPreview);
     const imagePreview = document.getElementById('imagePreview');
     const modDataPreview = document.getElementById('modDataPreview');
     const modDataInfo = document.getElementById('modDataInfo');
@@ -2499,7 +2511,7 @@
         container.scrollLeft = Math.round(ratioX * newDW - (e.clientX - rect.left));
         container.scrollTop = Math.round(ratioY * newDH - (e.clientY - rect.top));
         // 高倍缩放时启用像素锐利渲染，低倍时保持平滑避免噪点
-        img.style.imageRendering = newScale > 1.5 ? 'pixelated' : 'auto';
+        applyPixelRendering(img);
       }, { passive: false });
 
       // ── 取消 / 确认 ──
@@ -2543,6 +2555,8 @@
     const sideBySideView = document.getElementById('sideBySideView');
     let compareActive = false;
     let compareDragging = false;
+    compareBefore.onload = () => applyPixelRendering(compareBefore);
+    compareAfter.onload = () => applyPixelRendering(compareAfter);
 
     compareBtn.addEventListener('click', () => {
       compareActive = !compareActive;
