@@ -2541,7 +2541,7 @@
       const w = canvasDith.width, h = canvasDith.height;
       const win = window.open('', '_blank', `width=${Math.min(w + 40, screen.width)},height=${Math.min(h + 80, screen.height)}`);
       if (!win) return;
-      win.document.write(`<!DOCTYPE html><html><head><title>抖动预览 ${w}×${h}</title><style>*{margin:0;padding:0;box-sizing:border-box}body{background:#1a1a1a;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}img{display:block}</style></head><body><img src="${dataUrl}"></body></html>`);
+      win.document.write(`<!DOCTYPE html><html><head><title>抖动预览 ${w}×${h}</title><style>*{margin:0;padding:0;box-sizing:border-box}body{background:#1a1a1a;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px;overflow:auto}img{display:block;image-rendering:pixelated;image-rendering:crisp-edges;max-width:100%;height:auto}</style></head><body><img src="${dataUrl}"></body></html>`);
       win.document.close();
     });
 
