@@ -238,6 +238,50 @@
     }
     .console-toolbar .info { font-size: 12px; color: var(--text-sec); }
 
+    /* 裁剪弹窗 */
+    .crop-modal-overlay {
+      position: fixed; inset: 0; background: rgba(0,0,0,.75);
+      z-index: 1000; display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+    }
+    .crop-modal-title {
+      color: #fff; font-size: 15px; font-weight: 500;
+      padding: 12px 0 8px; text-align: center;
+    }
+    .crop-modal-title span { color: rgba(255,255,255,.6); }
+    .crop-container {
+      position: relative; display: inline-block; overflow: hidden;
+      border: 1px solid rgba(255,255,255,.2); border-radius: 6px;
+      max-width: 90vw; max-height: 70vh; cursor: grab;
+    }
+    .crop-container:active { cursor: grabbing; }
+    .crop-container img {
+      display: block; user-select: none; -webkit-user-select: none; pointer-events: none;
+      image-rendering: pixelated; image-rendering: crisp-edges;
+    }
+    .crop-selection {
+      position: absolute; border: 2px solid #0078d4; box-shadow: 0 0 0 9999px rgba(0,0,0,.45);
+      cursor: move; z-index: 2; pointer-events: auto;
+    }
+    .crop-handle {
+      position: absolute; width: 14px; height: 14px; background: #fff;
+      border: 2px solid #0078d4; border-radius: 50%; z-index: 3;
+    }
+    .crop-handle-tl { top: -7px; left: -7px; cursor: nw-resize; }
+    .crop-handle-tr { top: -7px; right: -7px; cursor: ne-resize; }
+    .crop-handle-bl { bottom: -7px; left: -7px; cursor: sw-resize; }
+    .crop-handle-br { bottom: -7px; right: -7px; cursor: se-resize; }
+    .crop-coords {
+      position: absolute; bottom: -24px; left: 50%; transform: translateX(-50%);
+      font-size: 11px; color: rgba(255,255,255,.8); white-space: nowrap;
+      background: rgba(0,0,0,.5); padding: 2px 8px; border-radius: 3px; z-index: 4;
+      pointer-events: none;
+    }
+    .crop-actions {
+      display: flex; gap: 10px; padding: 12px 0 16px;
+    }
+    .crop-actions .btn { min-width: 90px; }
+
     @media (max-width: 600px) {
       body { padding: 10px; }
       .header { flex-direction: column; gap: 10px; text-align: center; }
@@ -2178,6 +2222,14 @@
       const w = parseInt(document.getElementById('targetWidth').value);
       const h = parseInt(document.getElementById('targetHeight').value);
       if (!w || !h) return;
+      // 打开裁剪弹窗，让用户在原图上框选区域
+      openCropModal(w, h);
+    });
+
+    // 执行实际的转换（在裁剪确认后调用）
+    function doConvert(sx, sy, sw, sh) {
+      const w = parseInt(document.getElementById('targetWidth').value);
+      const h = parseInt(document.getElementById('targetHeight').value);
       const palette = document.getElementById('paletteSelect').value;
       const algo = document.getElementById('ditherAlgo').value;
       const strength = parseInt(document.getElementById('ditherStrength').value) / 100;
@@ -2185,12 +2237,12 @@
       const contrastVal = parseInt(document.getElementById('contrast').value);
       const serpentine = document.getElementById('serpentine').checked;
       const pixelScale = Math.max(1, parseInt(document.getElementById('pixelScale').value) || 1);
-      // 抖动在缩小分辨率上进行
+      // 从原图裁剪区域绘制到目标尺寸
       const dw = Math.ceil(w / pixelScale), dh = Math.ceil(h / pixelScale);
       const tempCanvas = document.createElement('canvas');
       tempCanvas.width = dw; tempCanvas.height = dh;
       const tempCtx = tempCanvas.getContext('2d');
-      tempCtx.drawImage(loadedImage, 0, 0, dw, dh);
+      tempCtx.drawImage(loadedImage, sx, sy, sw, sh, 0, 0, dw, dh);
       const imageData = tempCtx.getImageData(0, 0, dw, dh);
       const dithered = ditherImage(imageData, palette, { algo, strength, brightness, contrast: contrastVal, serpentine });
       // 画到隐藏 canvas，pixelScale > 1 时用最近邻放大
@@ -2225,7 +2277,235 @@
           setTimeout(() => copyDataBtn.textContent = '复制数据', 1500);
         });
       };
-    });
+      // 启用发送按钮
+      lastModResult = modResult;
+      sendImgFlashBtn.disabled = !connected;
+      sendImgProgress.textContent = `数据就绪: ${modResult.bytes.length} 字节`;
+    }
+
+    // ========== 裁剪弹窗 ==========
+    function openCropModal(targetW, targetH) {
+      // 移除已有弹窗
+      const existing = document.querySelector('.crop-modal-overlay');
+      if (existing) existing.remove();
+
+      // 计算显示尺寸（让原图适配视口）
+      const imgNatW = loadedImage.naturalWidth, imgNatH = loadedImage.naturalHeight;
+      const maxW = window.innerWidth * 0.9, maxH = window.innerHeight * 0.7;
+      let displayW = imgNatW, displayH = imgNatH;
+      if (displayW > maxW || displayH > maxH) {
+        const scale = Math.min(maxW / displayW, maxH / displayH);
+        displayW = Math.round(displayW * scale);
+        displayH = Math.round(displayH * scale);
+      }
+
+      // 创建 DOM
+      const overlay = document.createElement('div');
+      overlay.className = 'crop-modal-overlay';
+
+      const title = document.createElement('div');
+      title.className = 'crop-modal-title';
+      title.innerHTML = `拖动选框选择区域 · 滚轮缩放 · 选框等比例缩放 <span>(${targetW}×${targetH})</span>`;
+
+      const container = document.createElement('div');
+      container.className = 'crop-container';
+      container.style.width = displayW + 'px';
+      container.style.height = displayH + 'px';
+
+      const img = document.createElement('img');
+      img.src = loadedImage.src;
+      img.style.width = '100%'; img.style.height = '100%';
+      img.draggable = false;
+
+      const sel = document.createElement('div');
+      sel.className = 'crop-selection';
+
+      const handleTL = document.createElement('div'); handleTL.className = 'crop-handle crop-handle-tl';
+      const handleTR = document.createElement('div'); handleTR.className = 'crop-handle crop-handle-tr';
+      const handleBL = document.createElement('div'); handleBL.className = 'crop-handle crop-handle-bl';
+      const handleBR = document.createElement('div'); handleBR.className = 'crop-handle crop-handle-br';
+      const coords = document.createElement('div'); coords.className = 'crop-coords';
+      sel.append(handleTL, handleTR, handleBL, handleBR, coords);
+      container.append(img, sel);
+
+      const actions = document.createElement('div');
+      actions.className = 'crop-actions';
+      const cancelBtn = document.createElement('button');
+      cancelBtn.className = 'btn btn-outline'; cancelBtn.textContent = '取消';
+      const confirmBtn = document.createElement('button');
+      confirmBtn.className = 'btn btn-primary'; confirmBtn.textContent = '确认裁剪';
+      actions.append(cancelBtn, confirmBtn);
+      overlay.append(title, container, actions);
+      document.body.appendChild(overlay);
+
+      // 坐标转换：显示坐标 ↔ 原图像素
+      const scaleX = imgNatW / displayW, scaleY = imgNatH / displayH;
+      let dispSelX, dispSelY, dispSelW, dispSelH;
+
+      // 计算初始选框（居中，适配显示区域）
+      function initSelection() {
+        const ratio = targetW / targetH;
+        let dW, dH;
+        if (targetW <= displayW && targetH <= displayH) {
+          dW = targetW; dH = targetH;
+        } else if (targetW / targetH > displayW / displayH) {
+          dW = displayW; dH = Math.round(displayW / ratio);
+        } else {
+          dH = displayH; dW = Math.round(displayH * ratio);
+        }
+        dispSelW = dW; dispSelH = dH;
+        dispSelX = Math.round((displayW - dW) / 2);
+        dispSelY = Math.round((displayH - dH) / 2);
+        // 确保选框在显示区域内
+        if (dispSelX + dispSelW > displayW) dispSelX = displayW - dispSelW;
+        if (dispSelY + dispSelH > displayH) dispSelY = displayH - dispSelH;
+        if (dispSelX < 0) dispSelX = 0;
+        if (dispSelY < 0) dispSelY = 0;
+      }
+      initSelection();
+
+      // 刷新选框位置和坐标提示
+      function refreshSel() {
+        sel.style.left = dispSelX + 'px';
+        sel.style.top = dispSelY + 'px';
+        sel.style.width = dispSelW + 'px';
+        sel.style.height = dispSelH + 'px';
+        const ix = Math.round(dispSelX * scaleX), iy = Math.round(dispSelY * scaleY);
+        const iw = Math.round(dispSelW * scaleX), ih = Math.round(dispSelH * scaleY);
+        coords.textContent = `${iw} × ${ih}`;
+      }
+      refreshSel();
+
+      // ── 拖拽移动选框 ──
+      let dragging = false, dragOffX = 0, dragOffY = 0;
+      sel.addEventListener('mousedown', e => {
+        if (e.target.classList.contains('crop-handle')) return;
+        dragging = true;
+        dragOffX = e.offsetX; dragOffY = e.offsetY;
+        e.preventDefault(); e.stopPropagation();
+      });
+
+      // ── 四角等比例缩放 ──
+      let resizing = false, resizeCorner = '';
+      const aspect = targetW / targetH;
+      [handleTL, handleTR, handleBL, handleBR].forEach(h => {
+        h.addEventListener('mousedown', e => {
+          resizing = true;
+          resizeCorner = h.classList.contains('crop-handle-tl') ? 'tl'
+            : h.classList.contains('crop-handle-tr') ? 'tr'
+            : h.classList.contains('crop-handle-bl') ? 'bl' : 'br';
+          e.preventDefault(); e.stopPropagation();
+        });
+      });
+
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+
+      function onMove(e) {
+        if (dragging) {
+          const rect = container.getBoundingClientRect();
+          dispSelX = Math.round(e.clientX - rect.left - dragOffX);
+          dispSelY = Math.round(e.clientY - rect.top - dragOffY);
+          // 限制在显示区域内
+          dispSelX = Math.max(0, Math.min(displayW - dispSelW, dispSelX));
+          dispSelY = Math.max(0, Math.min(displayH - dispSelH, dispSelY));
+          refreshSel();
+        }
+        if (resizing) {
+          const rect = container.getBoundingClientRect();
+          const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+          let newW, newH, newX, newY;
+          if (resizeCorner === 'br') {
+            newW = Math.max(10, mx - dispSelX);
+            newH = Math.round(newW / aspect);
+            if (dispSelY + newH > displayH) { newH = displayH - dispSelY; newW = Math.round(newH * aspect); }
+            if (dispSelX + newW > displayW) { newW = displayW - dispSelX; newH = Math.round(newW / aspect); }
+            dispSelW = newW; dispSelH = newH;
+          } else if (resizeCorner === 'tl') {
+            newW = Math.max(10, dispSelX + dispSelW - mx);
+            newH = Math.round(newW / aspect);
+            newX = dispSelX + dispSelW - newW; newY = dispSelY + dispSelH - newH;
+            if (newY < 0) { newH = dispSelY + dispSelH; newW = Math.round(newH * aspect); newX = dispSelX + dispSelW - newW; newY = 0; }
+            if (newX < 0) { newW = dispSelX + dispSelW; newH = Math.round(newW / aspect); newX = 0; newY = dispSelY + dispSelH - newH; }
+            dispSelX = newX; dispSelY = newY; dispSelW = newW; dispSelH = newH;
+          } else if (resizeCorner === 'tr') {
+            newW = Math.max(10, mx - dispSelX);
+            newH = Math.round(newW / aspect);
+            newY = dispSelY + dispSelH - newH;
+            if (dispSelX + newW > displayW) { newW = displayW - dispSelX; newH = Math.round(newW / aspect); }
+            if (newY < 0) { newH = dispSelY + dispSelH; newW = Math.round(newH * aspect); newY = 0; }
+            dispSelW = newW; dispSelH = newH; dispSelY = newY;
+          } else { // bl
+            newW = Math.max(10, dispSelX + dispSelW - mx);
+            newH = Math.round(newW / aspect);
+            newX = dispSelX + dispSelW - newW;
+            if (dispSelY + newH > displayH) { newH = displayH - dispSelY; newW = Math.round(newH * aspect); }
+            if (newX < 0) { newW = dispSelX + dispSelW; newH = Math.round(newW / aspect); newX = 0; }
+            dispSelX = newX; dispSelW = newW; dispSelH = newH;
+          }
+          refreshSel();
+        }
+      }
+
+      function onUp() { dragging = false; resizing = false; }
+
+      // ── 容器内拖拽平移图片 ──
+      let panning = false, panStartX = 0, panStartY = 0, scrollStartX = 0, scrollStartY = 0;
+      container.addEventListener('mousedown', e => {
+        if (e.target !== img && e.target !== container) return;
+        panning = true;
+        panStartX = e.clientX; panStartY = e.clientY;
+        scrollStartX = container.scrollLeft; scrollStartY = container.scrollTop;
+      });
+      document.addEventListener('mousemove', e => {
+        if (!panning) return;
+        container.scrollLeft = scrollStartX - (e.clientX - panStartX);
+        container.scrollTop = scrollStartY - (e.clientY - panStartY);
+      });
+      document.addEventListener('mouseup', () => { panning = false; });
+
+      // ── 滚轮缩放 ──
+      container.addEventListener('wheel', e => {
+        e.preventDefault();
+        const delta = e.deltaY > 0 ? -0.1 : 0.1;
+        const newScale = Math.max(0.1, Math.min(10, (displayW / imgNatW) + delta));
+        const newDW = Math.round(imgNatW * newScale), newDH = Math.round(imgNatH * newScale);
+        // 保持鼠标位置不变
+        const rect = container.getBoundingClientRect();
+        const mx = e.clientX - rect.left + container.scrollLeft;
+        const my = e.clientY - rect.top + container.scrollTop;
+        const ratioX = mx / displayW, ratioY = my / displayH;
+        displayW = newDW; displayH = newDH;
+        container.style.width = newDW + 'px';
+        container.style.height = newDH + 'px';
+        // 选框按缩放比例调整
+        const sf = newScale / (newScale - delta || 1);
+        dispSelX = Math.round(dispSelX * sf); dispSelY = Math.round(dispSelY * sf);
+        dispSelW = Math.round(dispSelW * sf); dispSelH = Math.round(dispSelH * sf);
+        refreshSel();
+        container.scrollLeft = Math.round(ratioX * newDW - (e.clientX - rect.left));
+        container.scrollTop = Math.round(ratioY * newDH - (e.clientY - rect.top));
+      }, { passive: false });
+
+      // ── 取消 / 确认 ──
+      cancelBtn.onclick = () => { cleanup(); overlay.remove(); };
+      confirmBtn.onclick = () => {
+        // 转换为原图像素坐标
+        const sx = Math.round(dispSelX * scaleX), sy = Math.round(dispSelY * scaleY);
+        const sw = Math.round(dispSelW * scaleX), sh = Math.round(dispSelH * scaleY);
+        cleanup(); overlay.remove();
+        doConvert(sx, sy, sw, sh);
+      };
+
+      // ESC 关闭
+      function onKey(e) { if (e.key === 'Escape') { cleanup(); overlay.remove(); } }
+      document.addEventListener('keydown', onKey);
+      function cleanup() {
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+        document.removeEventListener('keydown', onKey);
+      }
+    }
 
     // 查看大图：弹出新窗口显示
     viewFullBtn.addEventListener('click', () => {
@@ -2520,27 +2800,10 @@
       imgFlashIdSelect.appendChild(opt);
     }
 
-    // 转换后启用发送按钮
+    // 转换后启用发送按钮（逻辑已移入 doConvert）
     let lastModResult = null;
     const sendImgFlashBtn = document.getElementById('sendImgFlashBtn');
     const sendImgProgress = document.getElementById('sendImgProgress');
-    const origConvertClick = convertBtn.onclick;
-    convertBtn.addEventListener('click', () => {
-      // 转换完成后启用发送
-      setTimeout(() => {
-        if (canvasDith.width && canvasDith.height) {
-          const w = canvasDith.width, h = canvasDith.height;
-          const tmp = document.createElement('canvas');
-          tmp.width = w; tmp.height = h;
-          tmp.getContext('2d').drawImage(canvasDith, 0, 0);
-          const imgData = tmp.getContext('2d').getImageData(0, 0, w, h);
-          const palette = document.getElementById('paletteSelect').value;
-          lastModResult = generateModData(imgData, palette);
-          sendImgFlashBtn.disabled = !connected;
-          sendImgProgress.textContent = `数据就绪: ${lastModResult.bytes.length} 字节`;
-        }
-      }, 100);
-    });
 
     // 发送图片到 Flash
     const FLASH_IMG_SIZE = 2 * 1024 * 1024; // 2MB per image
