@@ -673,6 +673,12 @@
     let messageCount = 0;
     let rxBuffer = []; // 接收缓冲区，处理粘包
     let protoPending = null; // 等待协议响应的回调
+    let lastModResult = null; // 最近一次转换的取模数据
+    const sendImgFlashBtn = document.getElementById('sendImgFlashBtn');
+    const sendImgProgress = document.getElementById('sendImgProgress');
+
+    // ========== 工具函数 ==========
+    function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
 
     // ========== 协议命令配置 ==========
     // 统一管理所有协议命令，方便编辑和新增
@@ -746,6 +752,93 @@
     async function sendCommandWait(command, data = null, timeout = 5000) {
       const cmdData = data !== null ? data : (command.data || []);
       return await sendProtoFrameWait(command.cmd, cmdData, timeout);
+    }
+
+    // ========== 协议帧处理 ==========
+    const PROTO_HEAD = 0xAA;
+
+    function crc16Modbus(data) {
+      let crc = 0xFFFF;
+      for (let i = 0; i < data.length; i++) {
+        crc ^= data[i];
+        for (let j = 0; j < 8; j++) {
+          if (crc & 1) crc = (crc >> 1) ^ 0xA001;
+          else crc >>= 1;
+        }
+      }
+      return crc;
+    }
+
+    function parseProtoFrame(bytes) {
+      if (!bytes || bytes.length < 6) return null;
+      if (bytes[0] !== PROTO_HEAD) return null;
+      const dataLen = (bytes[2] << 8) | bytes[3];
+      const frameLen = 4 + dataLen + 2;
+      if (bytes.length < frameLen) return null;
+      const receivedCrc = bytes[frameLen - 2] | (bytes[frameLen - 1] << 8);
+      const calcCrc = crc16Modbus(bytes.slice(0, frameLen - 2));
+      if (receivedCrc !== calcCrc) return null;
+      return { cmd: bytes[1], dataLen, data: bytes.slice(4, 4 + dataLen) };
+    }
+
+    function buildProtoFrame(cmd, data) {
+      const len = data ? data.length : 0;
+      const body = [PROTO_HEAD, cmd, (len >> 8) & 0xFF, len & 0xFF];
+      if (len > 0) body.push(...data);
+      const crc = crc16Modbus(body);
+      body.push(crc & 0xFF, (crc >> 8) & 0xFF);
+      return body;
+    }
+
+    async function sendProtoFrame(cmd, data) {
+      if (!connected) { addMessage('error', '请先连接设备'); return; }
+      const frame = buildProtoFrame(cmd, data || []);
+      const hexStr = frame.map(b => b.toString(16).padStart(2, '0').toUpperCase()).join(' ');
+      addMessage('sent', `[协议] CMD 0x${cmd.toString(16).padStart(2, '0').toUpperCase()}: ${hexStr}`);
+      try {
+        if (currentMode === 'serial-web' && serialPort && serialOpen) {
+          await writeSerialData(new Uint8Array(frame));
+        } else if (currentMode === 'ws' && wsDevice && wsDevice.readyState === 1) {
+          wsDevice.send(new Uint8Array(frame));
+        } else if (currentMode === 'ble' && bleConnected) {
+          await writeBleData(new Uint8Array(frame));
+        }
+      } catch (err) {
+        addMessage('error', `协议发送失败: ${err.message}`);
+      }
+    }
+
+    async function sendProtoFrameWait(cmd, data, timeout) {
+      return new Promise(async (resolve, reject) => {
+        const frame = buildProtoFrame(cmd, data || []);
+        const hexStr = frame.map(b => b.toString(16).padStart(2, '0').toUpperCase()).join(' ');
+        addMessage('sent', `[协议] CMD 0x${cmd.toString(16).padStart(2, '0').toUpperCase()}: ${hexStr}`);
+        const timer = setTimeout(() => {
+          protoPending = null;
+          reject(new Error('响应超时'));
+        }, timeout || 5000);
+        protoPending = (parsed) => {
+          clearTimeout(timer);
+          resolve(parsed);
+        };
+        try {
+          if (currentMode === 'serial-web' && serialPort && serialOpen) {
+            await writeSerialData(new Uint8Array(frame));
+          } else if (currentMode === 'ws' && wsDevice && wsDevice.readyState === 1) {
+            wsDevice.send(new Uint8Array(frame));
+          } else if (currentMode === 'ble' && bleConnected) {
+            await writeBleData(new Uint8Array(frame));
+          } else {
+            clearTimeout(timer);
+            protoPending = null;
+            reject(new Error('未连接到设备'));
+          }
+        } catch (err) {
+          clearTimeout(timer);
+          protoPending = null;
+          reject(err);
+        }
+      });
     }
 
     // ========== 标签切换 (含互斥) ==========
@@ -1713,7 +1806,7 @@
       }
     }
 
-    // 处理接收到的数据
+    // ========== 接收数据处理 ==========
     function processReceivedData() {
       const filterOn = document.getElementById('protoFilterToggle').checked;
       let rawBytes = []; // 收集非协议数据
@@ -1942,103 +2035,6 @@
     sendBtn.onclick = handleSend;
     sendInput.addEventListener('keydown', e => { if (e.key === 'Enter') handleSend(); });
 
-    // ========== 协议发送 ==========
-    const PROTO_HEAD = 0xAA;
-
-    // 协议解析
-    function parseProtoFrame(bytes) {
-      if (!bytes || bytes.length < 6) return null;
-      if (bytes[0] !== PROTO_HEAD) return null;
-      const dataLen = (bytes[2] << 8) | bytes[3];
-      const frameLen = 4 + dataLen + 2;
-      if (bytes.length < frameLen) return null;
-      const receivedCrc = bytes[frameLen - 2] | (bytes[frameLen - 1] << 8);
-      const calcCrc = crc16Modbus(bytes.slice(0, frameLen - 2));
-      if (receivedCrc !== calcCrc) return null;
-      return { cmd: bytes[1], dataLen, data: bytes.slice(4, 4 + dataLen) };
-    }
-
-    function crc16Modbus(data) {
-      let crc = 0xFFFF;
-      for (let i = 0; i < data.length; i++) {
-        crc ^= data[i];
-        for (let j = 0; j < 8; j++) {
-          if (crc & 1) crc = (crc >> 1) ^ 0xA001;
-          else crc >>= 1;
-        }
-      }
-      return crc;
-    }
-
-    function buildProtoFrame(cmd, data) {
-      const len = data ? data.length : 0;
-      const body = [PROTO_HEAD, cmd, (len >> 8) & 0xFF, len & 0xFF];
-      if (len > 0) body.push(...data);
-      const crc = crc16Modbus(body);
-      body.push(crc & 0xFF, (crc >> 8) & 0xFF);
-      return body;
-    }
-
-    async function sendProtoFrame(cmd, data) {
-      if (!connected) { addMessage('error', '请先连接设备'); return; }
-      const frame = buildProtoFrame(cmd, data || []);
-      const hexStr = frame.map(b => b.toString(16).padStart(2, '0').toUpperCase()).join(' ');
-      addMessage('sent', `[协议] CMD 0x${cmd.toString(16).padStart(2, '0').toUpperCase()}: ${hexStr}`);
-      
-      try {
-        if (currentMode === 'serial-web' && serialPort && serialOpen) {
-          // Web Serial 模式：直接发送字节数组
-          await writeSerialData(new Uint8Array(frame));
-        } else if (currentMode === 'ws' && wsDevice && wsDevice.readyState === 1) {
-          // WebSocket 直连模式：直接发送二进制帧到 ESP32
-          wsDevice.send(new Uint8Array(frame));
-        } else if (currentMode === 'ble' && bleConnected) {
-          // BLE 蓝牙模式：通过 RX 特征值发送
-          await writeBleData(new Uint8Array(frame));
-        }
-      } catch (err) {
-        addMessage('error', `协议发送失败: ${err.message}`);
-      }
-    }
-
-    // 发送协议帧并等待响应（返回 Promise）
-    async function sendProtoFrameWait(cmd, data, timeout) {
-      return new Promise(async (resolve, reject) => {
-        const frame = buildProtoFrame(cmd, data || []);
-        const hexStr = frame.map(b => b.toString(16).padStart(2, '0').toUpperCase()).join(' ');
-        addMessage('sent', `[协议] CMD 0x${cmd.toString(16).padStart(2, '0').toUpperCase()}: ${hexStr}`);
-        const timer = setTimeout(() => {
-          protoPending = null;
-          reject(new Error('响应超时'));
-        }, timeout || 5000);
-        protoPending = (parsed) => {
-          clearTimeout(timer);
-          resolve(parsed);
-        };
-        
-        try {
-          if (currentMode === 'serial-web' && serialPort && serialOpen) {
-            // Web Serial 模式：直接发送字节数组
-            await writeSerialData(new Uint8Array(frame));
-          } else if (currentMode === 'ws' && wsDevice && wsDevice.readyState === 1) {
-            // WebSocket 直连模式：直接发送二进制帧到 ESP32
-            wsDevice.send(new Uint8Array(frame));
-          } else if (currentMode === 'ble' && bleConnected) {
-            // BLE 蓝牙模式：通过 RX 特征值发送
-            await writeBleData(new Uint8Array(frame));
-          } else {
-            clearTimeout(timer);
-            protoPending = null;
-            reject(new Error('未连接到设备'));
-          }
-        } catch (err) {
-          clearTimeout(timer);
-          protoPending = null;
-          reject(err);
-        }
-      });
-    }
-
     // ========== 命令按钮绑定 ==========
     // 使用统一的命令配置，方便管理
     
@@ -2085,12 +2081,6 @@
       document.getElementById('wifiDisconnectBtn').disabled = !enabled;
     }
 
-    document.getElementById('clearMsgBtn').onclick = () => {
-      messageCount = 0;
-      msgCountEl.textContent = '0 条消息';
-      messageArea.innerHTML = '<div class="empty-hint">暂无消息，请先连接设备</div>';
-    };
-
     function addMessage(type, text) {
       const emptyHint = messageArea.querySelector('.empty-hint');
       if (emptyHint) emptyHint.remove();
@@ -2105,7 +2095,11 @@
       messageArea.scrollTop = messageArea.scrollHeight;
     }
 
-    function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+    document.getElementById('clearMsgBtn').onclick = () => {
+      messageCount = 0;
+      msgCountEl.textContent = '0 条消息';
+      messageArea.innerHTML = '<div class="empty-hint">暂无消息，请先连接设备</div>';
+    };
 
     // ========== 图片抖动与取模 ==========
     const imageInput = document.getElementById('imageInput');
@@ -2824,7 +2818,7 @@
       return { bytes, hex };
     }
 
-    // ========== 初始化 ==========
+    // ========== 发送图片到设备 ==========
     // 生成图片下拉选项（显示1-16，实际id 0-15）
     const imgFlashIdSelect = document.getElementById('imgFlashIdSelect');
     for (let i = 0; i < 16; i++) {
@@ -2832,11 +2826,6 @@
       opt.value = i; opt.textContent = `图片 ${i + 1}`;
       imgFlashIdSelect.appendChild(opt);
     }
-
-    // 转换后启用发送按钮（逻辑已移入 doConvert）
-    let lastModResult = null;
-    const sendImgFlashBtn = document.getElementById('sendImgFlashBtn');
-    const sendImgProgress = document.getElementById('sendImgProgress');
 
     // 发送图片到 Flash
     const FLASH_IMG_SIZE = 2 * 1024 * 1024; // 2MB per image
