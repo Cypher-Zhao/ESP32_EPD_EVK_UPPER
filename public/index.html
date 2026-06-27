@@ -2120,6 +2120,7 @@
     const modDataInfo = document.getElementById('modDataInfo');
     const copyDataBtn = document.getElementById('copyDataBtn');
     let loadedImage = null;
+    let lastCropRect = null; // { sx, sy, sw, sh } 最近一次裁切的原图像素坐标
 
     imageInput.addEventListener('change', (e) => {
       const file = e.target.files[0];
@@ -2133,6 +2134,7 @@
       const img = new Image();
       img.onload = () => {
         loadedImage = img;
+        lastCropRect = null;
         convertBtn.disabled = false;
         // 设置目标分辨率为原图尺寸并启用
         document.getElementById('targetWidth').value = img.width;
@@ -2237,6 +2239,18 @@
       const serpentine = document.getElementById('serpentine').checked;
       const pixelScale = Math.max(1, parseInt(document.getElementById('pixelScale').value) || 1);
       // 从原图裁剪区域绘制到目标尺寸
+      // 更新原图预览为裁切后的区域
+      const cropCanvas = document.createElement('canvas');
+      cropCanvas.width = sw; cropCanvas.height = sh;
+      cropCanvas.getContext('2d').drawImage(loadedImage, sx, sy, sw, sh, 0, 0, sw, sh);
+      canvasOrig.width = sw; canvasOrig.height = sh;
+      canvasOrig.getContext('2d').drawImage(cropCanvas, 0, 0);
+      originalPreview.src = canvasOrig.toDataURL('image/png');
+      canvasOrig.style.display = 'none';
+      originalPreview.style.display = 'block';
+      origSizeInfo.textContent = `裁切区域: ${sw} × ${sh} px（原图: ${loadedImage.naturalWidth} × ${loadedImage.naturalHeight}）`;
+      lastCropRect = { sx, sy, sw, sh };
+      // 用裁切区域做抖动
       const dw = Math.ceil(w / pixelScale), dh = Math.ceil(h / pixelScale);
       const tempCanvas = document.createElement('canvas');
       tempCanvas.width = dw; tempCanvas.height = dh;
@@ -2545,10 +2559,14 @@
       if (!w || !h) return;
       // 设置容器宽高比，防止图片加载前容器塌陷
       compareView.style.aspectRatio = w + ' / ' + h;
-      // 绘制原图到隐藏 canvas，再转 PNG 给 img 显示（与抖动后一致）
+      // 绘制裁切区域到隐藏 canvas（与抖动后一致）
       compareBeforeCanvas.width = w; compareBeforeCanvas.height = h;
       const ctx = compareBeforeCanvas.getContext('2d');
-      ctx.drawImage(loadedImage, 0, 0, w, h);
+      if (lastCropRect) {
+        ctx.drawImage(loadedImage, lastCropRect.sx, lastCropRect.sy, lastCropRect.sw, lastCropRect.sh, 0, 0, w, h);
+      } else {
+        ctx.drawImage(loadedImage, 0, 0, w, h);
+      }
       compareBefore.src = compareBeforeCanvas.toDataURL('image/png');
       compareAfter.src = canvasDith.toDataURL('image/png');
       setComparePosition(50);
