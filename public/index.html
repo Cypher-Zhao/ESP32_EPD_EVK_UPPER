@@ -243,16 +243,18 @@
       position: fixed; inset: 0; background: rgba(0,0,0,.75);
       z-index: 1000; display: flex; flex-direction: column;
       align-items: center; justify-content: center;
+      overflow: auto; padding: 10px;
     }
     .crop-modal-title {
       color: #fff; font-size: 15px; font-weight: 500;
       padding: 12px 0 8px; text-align: center;
+      flex-shrink: 0;
     }
     .crop-modal-title span { color: rgba(255,255,255,.6); }
     .crop-container {
       position: relative; display: inline-block; overflow: hidden;
       border: 1px solid rgba(255,255,255,.2); border-radius: 6px;
-      max-width: 90vw; max-height: 70vh; cursor: grab;
+      cursor: grab; flex-shrink: 0;
     }
     .crop-container:active { cursor: grabbing; }
     .crop-container img {
@@ -2118,8 +2120,12 @@
       // 放大显示时用像素锐利，缩小时用平滑
       img.style.imageRendering = (scaleX > 1 || scaleY > 1) ? 'pixelated' : 'auto';
     }
-    // 预览图加载后自动适配渲染模式
-    originalPreview.onload = () => applyPixelRendering(originalPreview);
+    // 原图预览始终平滑渲染（避免像素化噪点）
+    originalPreview.onload = () => {
+      originalPreview.style.imageRendering = 'auto';
+      originalPreview.style.setProperty('image-rendering', 'auto', 'important');
+    };
+    // 抖动预览图加载后自动适配渲染模式
     ditheredPreview.onload = () => applyPixelRendering(ditheredPreview);
     const imagePreview = document.getElementById('imagePreview');
     const modDataPreview = document.getElementById('modDataPreview');
@@ -2257,28 +2263,33 @@
       origSizeInfo.textContent = `裁切区域: ${sw} × ${sh} px（原图: ${loadedImage.naturalWidth} × ${loadedImage.naturalHeight}）`;
       lastCropRect = { sx, sy, sw, sh };
       // 用裁切区域做抖动
-      const dw = Math.ceil(w / pixelScale), dh = Math.ceil(h / pixelScale);
-      const tempCanvas = document.createElement('canvas');
-      tempCanvas.width = dw; tempCanvas.height = dh;
-      const tempCtx = tempCanvas.getContext('2d');
-      tempCtx.drawImage(loadedImage, sx, sy, sw, sh, 0, 0, dw, dh);
-      const imageData = tempCtx.getImageData(0, 0, dw, dh);
+      // pixelScale: 抖动分辨率 = 目标分辨率 / pixelScale，然后最近邻放大
+      // 例如: w=800, h=480, pixelScale=4 → 在 200×120 上做抖动 → 最近邻放大到 800×480
+      const ditherW = Math.max(1, Math.round(w / pixelScale));
+      const ditherH = Math.max(1, Math.round(h / pixelScale));
+      // 在抖动分辨率上做抖动（将裁切区域缩放到抖动分辨率）
+      const ditherCanvas = document.createElement('canvas');
+      ditherCanvas.width = ditherW; ditherCanvas.height = ditherH;
+      const ditherCtx = ditherCanvas.getContext('2d');
+      ditherCtx.imageSmoothingEnabled = true;  // 缩小时用平滑插值保持原图信息
+      ditherCtx.drawImage(loadedImage, sx, sy, sw, sh, 0, 0, ditherW, ditherH);
+      const imageData = ditherCtx.getImageData(0, 0, ditherW, ditherH);
       const dithered = ditherImage(imageData, palette, { algo, strength, brightness, contrast: contrastVal, serpentine });
-      // 画到隐藏 canvas，pixelScale > 1 时用最近邻放大
+      // 画到隐藏 canvas，目标尺寸 w×h
       canvasDith.width = w; canvasDith.height = h;
       const dithCtx = canvasDith.getContext('2d');
-      if (pixelScale > 1) {
-        const smallCanvas = document.createElement('canvas');
-        smallCanvas.width = dw; smallCanvas.height = dh;
-        smallCanvas.getContext('2d').putImageData(dithered, 0, 0);
-        dithCtx.imageSmoothingEnabled = false;
-        dithCtx.drawImage(smallCanvas, 0, 0, w, h);
-      } else {
-        dithCtx.putImageData(dithered, 0, 0);
-      }
-      // 转成图片 URL 显示，浏览器默认平滑缩放
+      // 将抖动结果用最近邻放大到 w×h（像素块效果）
+      const ditherSrcCanvas = document.createElement('canvas');
+      ditherSrcCanvas.width = ditherW; ditherSrcCanvas.height = ditherH;
+      ditherSrcCanvas.getContext('2d').putImageData(dithered, 0, 0);
+      dithCtx.imageSmoothingEnabled = false;
+      dithCtx.drawImage(ditherSrcCanvas, 0, 0, w, h);
+      // 转成图片 URL 显示，点阵图强制 pixelated 渲染避免浏览器平滑导致扭曲
       ditheredPreview.src = canvasDith.toDataURL('image/png');
       ditheredPreview.style.display = 'block';
+      // 强制设置 imageRendering 为 pixelated，避免浏览器平滑插值导致的噪点和串扰
+      ditheredPreview.style.imageRendering = (pixelScale > 1) ? 'pixelated' : 'auto';
+      ditheredPreview.style.setProperty('image-rendering', (pixelScale > 1) ? 'pixelated' : 'auto', 'important');
       // 启用对比和查看大图按钮
       compareBtn.style.display = '';
       compareBtn.disabled = false;
@@ -2308,14 +2319,14 @@
       const existing = document.querySelector('.crop-modal-overlay');
       if (existing) existing.remove();
 
-      // 计算显示尺寸（让原图适配视口）
+      // 容器 = 显示尺寸，选框坐标通过 scaleX/scaleY 转换为原图像素
       const imgNatW = loadedImage.naturalWidth, imgNatH = loadedImage.naturalHeight;
-      const maxW = window.innerWidth * 0.9, maxH = window.innerHeight * 0.7;
+      const maxW = window.innerWidth - 40, maxH = window.innerHeight - 120;
       let displayW = imgNatW, displayH = imgNatH;
       if (displayW > maxW || displayH > maxH) {
-        const scale = Math.min(maxW / displayW, maxH / displayH);
-        displayW = Math.round(displayW * scale);
-        displayH = Math.round(displayH * scale);
+        const s = Math.min(maxW / displayW, maxH / displayH);
+        displayW = Math.round(displayW * s);
+        displayH = Math.round(displayH * s);
       }
 
       // 创建 DOM
@@ -2357,8 +2368,8 @@
       overlay.append(title, container, actions);
       document.body.appendChild(overlay);
 
-      // 坐标转换：显示坐标 ↔ 原图像素
-      const scaleX = imgNatW / displayW, scaleY = imgNatH / displayH;
+      // 坐标转换：显示坐标 × scale = 原图像素坐标
+      let scaleX = imgNatW / displayW, scaleY = imgNatH / displayH;
       let dispSelX, dispSelY, dispSelW, dispSelH;
 
       // 计算初始选框（居中，适配显示区域）
@@ -2375,7 +2386,6 @@
         dispSelW = dW; dispSelH = dH;
         dispSelX = Math.round((displayW - dW) / 2);
         dispSelY = Math.round((displayH - dH) / 2);
-        // 确保选框在显示区域内
         if (dispSelX + dispSelW > displayW) dispSelX = displayW - dispSelW;
         if (dispSelY + dispSelH > displayH) dispSelY = displayH - dispSelH;
         if (dispSelX < 0) dispSelX = 0;
@@ -2389,9 +2399,7 @@
         sel.style.top = dispSelY + 'px';
         sel.style.width = dispSelW + 'px';
         sel.style.height = dispSelH + 'px';
-        const ix = Math.round(dispSelX * scaleX), iy = Math.round(dispSelY * scaleY);
-        const iw = Math.round(dispSelW * scaleX), ih = Math.round(dispSelH * scaleY);
-        coords.textContent = `${iw} × ${ih}`;
+        coords.textContent = `${Math.round(dispSelW * scaleX)} × ${Math.round(dispSelH * scaleY)}`;
       }
       refreshSel();
 
@@ -2400,7 +2408,9 @@
       sel.addEventListener('mousedown', e => {
         if (e.target.classList.contains('crop-handle')) return;
         dragging = true;
-        dragOffX = e.offsetX; dragOffY = e.offsetY;
+        const rect = container.getBoundingClientRect();
+        dragOffX = (e.clientX - rect.left) - dispSelX;
+        dragOffY = (e.clientY - rect.top) - dispSelY;
         e.preventDefault(); e.stopPropagation();
       });
 
@@ -2423,9 +2433,8 @@
       function onMove(e) {
         if (dragging) {
           const rect = container.getBoundingClientRect();
-          dispSelX = Math.round(e.clientX - rect.left - dragOffX);
-          dispSelY = Math.round(e.clientY - rect.top - dragOffY);
-          // 限制在显示区域内
+          dispSelX = Math.round((e.clientX - rect.left) - dragOffX);
+          dispSelY = Math.round((e.clientY - rect.top) - dragOffY);
           dispSelX = Math.max(0, Math.min(displayW - dispSelW, dispSelX));
           dispSelY = Math.max(0, Math.min(displayH - dispSelH, dispSelY));
           refreshSel();
@@ -2468,50 +2477,41 @@
 
       function onUp() { dragging = false; resizing = false; }
 
-      // ── 容器内拖拽平移图片 ──
-      let panning = false, panStartX = 0, panStartY = 0, scrollStartX = 0, scrollStartY = 0;
-      container.addEventListener('mousedown', e => {
-        if (e.target !== img && e.target !== container) return;
-        panning = true;
-        panStartX = e.clientX; panStartY = e.clientY;
-        scrollStartX = container.scrollLeft; scrollStartY = container.scrollTop;
-      });
-      document.addEventListener('mousemove', e => {
-        if (!panning) return;
-        container.scrollLeft = scrollStartX - (e.clientX - panStartX);
-        container.scrollTop = scrollStartY - (e.clientY - panStartY);
-      });
-      document.addEventListener('mouseup', () => { panning = false; });
-
-      // ── 滚轮缩放 ──
+      // ── 滚轮缩放（调整容器和图片尺寸）──
       container.addEventListener('wheel', e => {
         e.preventDefault();
         const delta = e.deltaY > 0 ? -0.1 : 0.1;
-        const newScale = Math.max(0.1, Math.min(10, (displayW / imgNatW) + delta));
-        const newDW = Math.round(imgNatW * newScale), newDH = Math.round(imgNatH * newScale);
-        // 保持鼠标位置不变
+        const maxW = window.innerWidth - 40, maxH = window.innerHeight - 120;
+        const maxZoom = Math.min(10, maxW / imgNatW, maxH / imgNatH);
+        const oldZoom = displayW / imgNatW;
+        const newZoom = Math.max(0.1, Math.min(maxZoom, oldZoom + delta));
+        if (newZoom === oldZoom) return;
+        // 鼠标在容器中的相对位置（缩放前后保持该点不动）
         const rect = container.getBoundingClientRect();
-        const mx = e.clientX - rect.left + container.scrollLeft;
-        const my = e.clientY - rect.top + container.scrollTop;
-        const ratioX = mx / displayW, ratioY = my / displayH;
-        displayW = newDW; displayH = newDH;
+        const mxRatio = (e.clientX - rect.left) / displayW;
+        const myRatio = (e.clientY - rect.top) / displayH;
+        // 更新容器和图片尺寸
+        const newDW = Math.round(imgNatW * newZoom), newDH = Math.round(imgNatH * newZoom);
         container.style.width = newDW + 'px';
         container.style.height = newDH + 'px';
         // 选框按缩放比例调整
-        const sf = newScale / (newScale - delta || 1);
+        const sf = newZoom / oldZoom;
         dispSelX = Math.round(dispSelX * sf); dispSelY = Math.round(dispSelY * sf);
         dispSelW = Math.round(dispSelW * sf); dispSelH = Math.round(dispSelH * sf);
+        displayW = newDW; displayH = newDH;
+        scaleX = imgNatW / displayW; scaleY = imgNatH / displayH;
         refreshSel();
-        container.scrollLeft = Math.round(ratioX * newDW - (e.clientX - rect.left));
-        container.scrollTop = Math.round(ratioY * newDH - (e.clientY - rect.top));
-        // 高倍缩放时启用像素锐利渲染，低倍时保持平滑避免噪点
+        // 滚动保持鼠标下的点不变
+        const newRect = container.getBoundingClientRect();
+        overlay.scrollLeft += Math.round((newRect.left - rect.left) + mxRatio * newDW - (e.clientX - rect.left));
+        overlay.scrollTop += Math.round((newRect.top - rect.top) + myRatio * newDH - (e.clientY - rect.top));
         applyPixelRendering(img);
       }, { passive: false });
 
       // ── 取消 / 确认 ──
       cancelBtn.onclick = () => { cleanup(); overlay.remove(); };
       confirmBtn.onclick = () => {
-        // 转换为原图像素坐标
+        // 显示坐标 → 原图像素坐标
         const sx = Math.round(dispSelX * scaleX), sy = Math.round(dispSelY * scaleY);
         const sw = Math.round(dispSelW * scaleX), sh = Math.round(dispSelH * scaleY);
         cleanup(); overlay.remove();
